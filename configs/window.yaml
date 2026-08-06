@@ -1,0 +1,3 @@
+input_candles: 100
+outcome_horizon: 100
+window_size: 200
