@@ -16,6 +16,9 @@ class CandleNode:
 class ChartNode:
     candles: List[CandleNode] = field(default_factory=list)
 
+    @property
+    def current_price(self) -> int:
+        return self.candles[-1].close
 
 @dataclass
 class ZoneNode:
@@ -43,3 +46,4 @@ class ProgramNode:
     chart: Optional[ChartNode] = None
     think: Optional[ThinkNode] = None
     action: Optional[ActionNode] = None
+    future_bins: Optional[CandleNode] = None

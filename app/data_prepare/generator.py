@@ -1,22 +1,32 @@
 from __future__ import annotations
 
 import random
+import numpy as np
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
 
 from app.lang import (
     ASTVisitor,
+    Parser,
+    ParseResult,
+    SemanticChecker,
+    ProgramNode,
     ActionNode,
     CandleNode,
     ChartNode,
-    ProgramNode,
     ThinkNode,
     ZoneNode
 )
 
-LEAF_RECIPES: Dict[str, List[str]] = {
-    "support": ["BUY", "HOLD"],
-    "resistance": ["SELL", "HOLD"]
+LEAF_RECIPES = {
+    "support": {
+        "actions": ["BUY", "HOLD"],
+        "probs": [0.8, 0.2]
+    },
+    "resistance": {
+        "actions": ["SELL", "HOLD"],
+        "probs": [0.8, 0.2]
+    }
 }
 
 def _pick_sl_rr(
@@ -38,8 +48,6 @@ def _pick_sl_rr(
         if action_type == "BUY":
             sl = current_price - dist
             if not (bin_min <= sl < zone.lower_bin): 
-                # điều kiện này đảm bảo sl không nằm ngoài bin và sl luôn dưới zone, cái này có nên không? sl có thể đặt ở trong zone không?
-                # nếu chấp nhận điều kiện này, thì tại sao không đưa nó vào semantic check để tính reward?
                 continue
         else:
             sl = current_price + dist
@@ -58,7 +66,8 @@ def _pick_sl_rr(
 class GeneratedSample:
     prompt: str
     completion: str
-    future_bins: List[int]
+    program: ProgramNode
+    leaf_recipe: str
 
 class ActionGenerator:
     def __init__(
@@ -72,19 +81,18 @@ class ActionGenerator:
     
     def generate_one(
         self,
-        chart: ChartNode,
-        think: ThinkNode,
-        futures_bins: List[CandleNode],
+        program: ProgramNode,
         max_attempts: int = 30,
     ) -> Optional[GeneratedSample]:
-        current_price = chart.candles[-1].close
+        current_price = program.chart.current_price
         
-        if think.zone is None:
+        if program.think.zone is None:
             # re-verify mặc dù thực tế, với filter data, điểm này phải mặc định đúng 
             return None
         
         for _ in range(max_attempts):
-            action_type = self._random.choice(LEAF_RECIPES[think.zone.direction])
+            recipe = LEAF_RECIPES[program.think.zone.direction]
+            action_type = np.random.choice(recipe["actions"], p=recipe["probs"])
             action = ActionNode(action_type=action_type)
             
             if action_type in ("BUY", "SELL"):
@@ -104,11 +112,45 @@ class ActionGenerator:
                     continue
                 action.sl, action.rr = sl_rr
                 
-            prompt = self._ast_visitor.build_action_prompt(chart.candles, think)
+            prompt = self._ast_visitor.build_action_prompt(program.chart.candles, program.think)
             completion = self._ast_visitor.build_action_completion(action)
-            return GeneratedSample(prompt, completion, futures_bins)
+            
+            parse_result: ParseResult = Parser.from_text(self.cfg, prompt + " " + completion).parse()
+            if not parse_result.is_well_formed():
+                continue
+            
+            semantic_checker = SemanticChecker(
+                zone_width_min_bins=cfg.base.zone_width_min_bins,
+                zone_width_max_bins=cfg.base.zone_width_max_bins,
+                sl_min_dist_bins=cfg.base.sl_min_dist_bins,
+                sl_max_dist_bins=cfg.base.sl_max_dist_bins,
+                zone_extend_multiplier=cfg.base.zone_extend_multiplier,
+                last_n_touch=cfg.base.zone_last_n_touch
+            )
+            semantic_result = semantic_checker.check(parse_result.ast)
+            if not semantic_result.passed:
+                continue
+            
+            program.action = action
+            
+            leaf_name = f"{think.zone.direction}|{action_type}"
+            return GeneratedSample(prompt, completion, program, leaf_name)
         
         return None
+    
+    def generate_dataset(
+        self, 
+        programs: List[ProgramNode],
+        samples_per_chart: int = 4,
+        max_attempts: int = 30,
+    ) -> List[GeneratedSample]:
+        samples: List[GeneratedSample] = []
+        for program in programs:
+            for _ in range(samples_per_chart):
+                sample = self.generate_one(program, max_attempts=max_attempts)
+                if sample is not None:
+                    samples.append(sample)
+        return samples
     
 if __name__ == "__main__":
     def make_chart(closes) -> List[CandleNode]:
@@ -130,32 +172,11 @@ if __name__ == "__main__":
             upper_bin=505
         )
     )
-    future_bins = make_chart(futures_close)
-    print(future_bins)
+    program = ProgramNode(chart=chart, think=think, future_bins=make_chart(futures_close))
     action_generator = ActionGenerator(cfg)
-    sample = action_generator.generate_one(
-        chart, 
-        think, 
-        future_bins,
-    )
-    print(sample)
+    samples = action_generator.generate_dataset([program], samples_per_chart=10)
     
-    from app.lang.parser import Parser
-    parser = Parser.from_text(cfg, sample.prompt + " " + sample.completion)
-    result = parser.parse()
-    print(result)
-    print("well_formed =", result.is_well_formed())
-    for e in result.errors:
-        print(f"  [{e.severity}] {e.message}")
-        
-    from app.lang.semantic import SemanticChecker
-    semantic_checker = SemanticChecker(
-        zone_width_min_bins=cfg.base.zone_width_min_bins,
-        zone_width_max_bins=cfg.base.zone_width_max_bins,
-        sl_min_dist_bins=cfg.base.sl_min_dist_bins,
-        sl_max_dist_bins=cfg.base.sl_max_dist_bins,
-        zone_extend_multiplier=cfg.base.zone_extend_multiplier,
-        last_n_touch=cfg.base.zone_last_n_touch
-    )
-    semantic_result = semantic_checker.check(result.ast)
-    print(semantic_result)
+    
+    for sample in samples:
+        print(sample.completion)
+        print(sample.leaf_recipe)
