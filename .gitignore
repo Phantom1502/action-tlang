@@ -2,3 +2,4 @@ app/config/__pycache__/
 tests/__pycache__/
 app/lang/__pycache__/
 app/tokenizer/__pycache__/
+app/data_prepare/__pycache__/

@@ -5,6 +5,7 @@ from .ast_nodes import (
     ProgramNode,
     ThinkNode,
     ZoneNode,
+    ActionNode
 )
 from .ast_visitor import ASTVisitor
 from .parser import (
@@ -23,6 +24,7 @@ __all__ = [
     "ProgramNode",
     "ThinkNode",
     "ZoneNode",
+    "ActionNode",
     "ASTVisitor",
     "Parser",
     "ParseResult",

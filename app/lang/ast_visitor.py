@@ -101,6 +101,16 @@ class ASTVisitor:
 
     def build_completion(self, think: ThinkNode) -> str:
         return self.visit_think(think)
+    
+    def build_action_prompt(self, candles: List[CandleNode], think: ThinkNode) -> str:
+        chart = ChartNode(candles=candles)
+        parts = []
+        parts.append(self.visit_chart(chart))
+        parts.append(self.visit_think(think))
+        return " ".join(parts)
+    
+    def build_action_completion(self, action: ActionNode) -> str:
+        return self.visit_action(action)
 
 
 if __name__ == "__main__":

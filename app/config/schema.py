@@ -9,6 +9,7 @@ class BaseConfig:
     zone_width_min_bins: int
     zone_width_max_bins: int
     zone_score_weight: float
+    zone_extend_multiplier: float
     zone_last_n_touch: int
     sl_min_dist_bins: int
     sl_max_dist_bins: int
