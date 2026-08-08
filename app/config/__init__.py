@@ -3,6 +3,7 @@ from .schema import (
     AppConfig,
     BaseConfig,
     WindowConfig,
+    TrainingConfig,
 )
 
 from .loader import (
@@ -13,5 +14,6 @@ __all__ = [
     "AppConfig",
     "BaseConfig",
     "WindowConfig",
+    "TrainingConfig",
     "load_config",
 ]

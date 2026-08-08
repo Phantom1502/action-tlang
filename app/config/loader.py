@@ -7,12 +7,17 @@ from app.config.schema import (
     AppConfig,
     BaseConfig,
     WindowConfig,
+    ModelPreset,
+    ModelsConfig,
+    TrainingConfig,
 )
 
 # Cac file bat buoc phai co truc tiep trong config_dir (khong ke rounds/, duoc xu ly rieng).
 _REQUIRED_TOP_LEVEL_FILES = (
     "base.yaml",
     "window.yaml",
+    "models.yaml",
+    "training_defaults.yaml",
 )
 
 def _read_yaml(path: str) -> Any:
@@ -50,6 +55,42 @@ def _build_window_config(data: Dict[str, Any], source: str) -> WindowConfig:
         window_size=_require_field(data, "window_size", source),
     )
     
+def _build_models_config(data: Dict[str, Any], source: str) -> ModelsConfig:
+    presets_raw = data.get("presets", {}) or {}
+    presets = {}
+    for name, preset_data in presets_raw.items():
+        preset_source = f"{source}.presets.{name}"
+        presets[name] = ModelPreset(
+            hidden_size=_require_field(preset_data, "hidden_size", preset_source),
+            num_hidden_layers=_require_field(preset_data, "num_hidden_layers", preset_source),
+            num_attention_heads=_require_field(preset_data, "num_attention_heads", preset_source),
+            num_key_value_heads=_require_field(preset_data, "num_key_value_heads", preset_source),
+            intermediate_size=_require_field(preset_data, "intermediate_size", preset_source),
+        )
+    return ModelsConfig(
+        vocab_size=_require_field(data, "vocab_size", source),
+        max_position_embeddings=_require_field(data, "max_position_embeddings", source),
+        presets=presets,
+    )
+    
+def _build_training_config(data: Dict[str, Any], source: str) -> Dict[str, TrainingConfig]:
+    """Parse dict config thành danh sách các đối tượng TrainingConfig."""
+    if not isinstance(data, dict):
+        raise ValueError(f"Cấu hình {source} phải là một dictionary!")
+
+    return {
+        k: TrainingConfig(
+            batch_size=_require_field(v, "batch_size", source),
+            gradient_accumulation_steps=_require_field(v, "gradient_accumulation_steps", source),
+            learning_rate=_require_field(v, "learning_rate", source),
+            warmup_steps=_require_field(v, "warmup_steps", source),
+            max_steps=_require_field(v, "max_steps", source),
+            logging_steps=_require_field(v, "logging_steps", source),
+            save_steps=_require_field(v, "save_steps", source),
+        )
+        for k, v in data.items()
+    }
+
 def load_config(config_dir: str = "./config") -> AppConfig:
     """
     Pre-condition: config_dir ton tai, chua du file bat buoc (base.yaml, window.yaml,
@@ -74,11 +115,17 @@ def load_config(config_dir: str = "./config") -> AppConfig:
 
     base_data = _read_yaml(paths["base.yaml"])
     window_data = _read_yaml(paths["window.yaml"])
+    training_data = _read_yaml(paths["training_defaults.yaml"])
+    models_data = _read_yaml(paths["models.yaml"])
 
     base = _build_base_config(base_data, paths["base.yaml"])
     window = _build_window_config(window_data, paths["window.yaml"])
+    training = _build_training_config(training_data, paths["training_defaults.yaml"])
+    models = _build_models_config(models_data, paths["models.yaml"])
 
     return AppConfig(
         base=base,
         window=window,
+        models=models,
+        training=training
     )

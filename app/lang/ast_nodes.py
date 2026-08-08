@@ -46,4 +46,4 @@ class ProgramNode:
     chart: Optional[ChartNode] = None
     think: Optional[ThinkNode] = None
     action: Optional[ActionNode] = None
-    future_bins: Optional[CandleNode] = None
+    future_bins: Optional[List[CandleNode]] = None

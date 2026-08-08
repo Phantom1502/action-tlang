@@ -3,3 +3,9 @@ tests/__pycache__/
 app/lang/__pycache__/
 app/tokenizer/__pycache__/
 app/data_prepare/__pycache__/
+app/training/__pycache__/
+app/training/data/__pycache__/
+app/training/model/__pycache__/
+data/dataset/
+data/filter/
+data/raw/

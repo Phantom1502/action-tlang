@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import random
-import numpy as np
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Tuple
 
@@ -66,7 +65,6 @@ def _pick_sl_rr(
 class GeneratedSample:
     prompt: str
     completion: str
-    program: ProgramNode
     leaf_recipe: str
 
 class ActionGenerator:
@@ -86,13 +84,15 @@ class ActionGenerator:
     ) -> Optional[GeneratedSample]:
         current_price = program.chart.current_price
         
+        error_msg = None
+        
         if program.think.zone is None:
             # re-verify mặc dù thực tế, với filter data, điểm này phải mặc định đúng 
             return None
         
         for _ in range(max_attempts):
             recipe = LEAF_RECIPES[program.think.zone.direction]
-            action_type = np.random.choice(recipe["actions"], p=recipe["probs"])
+            action_type = self._random.choices(recipe["actions"], weights=recipe["probs"])[0]
             action = ActionNode(action_type=action_type)
             
             if action_type in ("BUY", "SELL"):
@@ -100,7 +100,7 @@ class ActionGenerator:
                     self._random, 
                     action_type, 
                     current_price,
-                    think.zone,
+                    program.think.zone,
                     self.cfg.base.sl_min_dist_bins,
                     self.cfg.base.sl_max_dist_bins,
                     self.cfg.base.bin_min,
@@ -117,25 +117,26 @@ class ActionGenerator:
             
             parse_result: ParseResult = Parser.from_text(self.cfg, prompt + " " + completion).parse()
             if not parse_result.is_well_formed():
+                error_msg = parse_result.errors
                 continue
             
             semantic_checker = SemanticChecker(
-                zone_width_min_bins=cfg.base.zone_width_min_bins,
-                zone_width_max_bins=cfg.base.zone_width_max_bins,
-                sl_min_dist_bins=cfg.base.sl_min_dist_bins,
-                sl_max_dist_bins=cfg.base.sl_max_dist_bins,
-                zone_extend_multiplier=cfg.base.zone_extend_multiplier,
-                last_n_touch=cfg.base.zone_last_n_touch
+                zone_width_min_bins=self.cfg.base.zone_width_min_bins,
+                zone_width_max_bins=self.cfg.base.zone_width_max_bins,
+                sl_min_dist_bins=self.cfg.base.sl_min_dist_bins,
+                sl_max_dist_bins=self.cfg.base.sl_max_dist_bins,
+                zone_extend_multiplier=self.cfg.base.zone_extend_multiplier,
+                last_n_touch=self.cfg.base.zone_last_n_touch
             )
             semantic_result = semantic_checker.check(parse_result.ast)
             if not semantic_result.passed:
+                error_msg = semantic_result.violations
                 continue
             
-            program.action = action
-            
-            leaf_name = f"{think.zone.direction}|{action_type}"
-            return GeneratedSample(prompt, completion, program, leaf_name)
+            leaf_name = f"{program.think.zone.direction}|{action_type}"
+            return GeneratedSample(prompt, completion, leaf_name)
         
+        print(f"Failed to generate action with error: {error_msg}")
         return None
     
     def generate_dataset(
@@ -160,8 +161,7 @@ if __name__ == "__main__":
     from app.config import load_config, AppConfig
     cfg: AppConfig = load_config("configs")
     
-    closes = [500, 505, 503, 507, 510]
-    futures_close = [515, 504, 505, 510, 527]
+    closes = [500, 505, 503, 507, 510] * 20
     chart = ChartNode(candles=make_chart(closes))    
     think = ThinkNode(
         trend="UP", 
@@ -169,10 +169,10 @@ if __name__ == "__main__":
         zone=ZoneNode(
             direction="support", # support |resistance
             lower_bin=500, 
-            upper_bin=505
+            upper_bin=555
         )
     )
-    program = ProgramNode(chart=chart, think=think, future_bins=make_chart(futures_close))
+    program = ProgramNode(chart=chart, think=think)
     action_generator = ActionGenerator(cfg)
     samples = action_generator.generate_dataset([program], samples_per_chart=10)
     
