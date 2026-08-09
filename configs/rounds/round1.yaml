@@ -1,0 +1,27 @@
+round_id: round1
+alpha: 0.15
+kp: 0.001
+kd: 0.001
+step_max: 0.001
+support:
+  BUY:
+    buff_min: 0.00
+    buff_max: 0.15
+    buff_init: 0.00
+    target_ratio: 0.8
+  HOLD:
+    buff_min: 0.00
+    buff_max: 0.15
+    buff_init: 0.00
+    target_ratio: 0.2
+resistance:
+  SELL:
+    buff_min: 0.00
+    buff_max: 0.15
+    buff_init: 0.00
+    target_ratio: 0.8
+  HOLD:
+    buff_min: 0.00
+    buff_max: 0.15
+    buff_init: 0.00
+    target_ratio: 0.2

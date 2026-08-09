@@ -26,13 +26,11 @@ class ZoneNode:
     lower_bin: int
     upper_bin: int
 
-
 @dataclass
 class ThinkNode:
     trend: Optional[str] = None                  # "UP" | "DOWN" | "RANGE"
     current_price_bin: Optional[int] = None      # BẮT BUỘC theo spec — luôn phải có mặt
     zone: Optional[ZoneNode] = None
-
 
 @dataclass
 class ActionNode:
@@ -40,6 +38,9 @@ class ActionNode:
     sl: Optional[int] = None
     rr: Optional[int] = None           # risk luôn chuẩn hoá = 1, rr là reward-multiple duy nhất
 
+    @property
+    def is_hold(self) -> bool:
+        return self.action_type == "HOLD"
 
 @dataclass
 class ProgramNode:

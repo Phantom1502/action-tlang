@@ -58,15 +58,16 @@ def main(
     input_dir: str,
     output_dir: str,
     seed: Optional[int] = None,
+    n_augments = 10,
 ):
     from datasets import load_dataset
+    import hashlib
 
     data_files = {
         "train": f"{input_dir}/train.parquet",
         "val": f"{input_dir}/val.parquet"
     }
     dataset = load_dataset("parquet", data_files=data_files)
-    builder = DatasetBuilder(cfg)
     
     def preprocess_for_llm(batch):
         prompts = []
@@ -87,6 +88,9 @@ def main(
             window_id = batch["window_id"][i]
             zone_quality = batch["zone_quality"][i]
             
+            row_seed = int(hashlib.md5(window_id.encode()).hexdigest(), 16) % (2**31)
+            builder = DatasetBuilder(cfg, seed=row_seed)
+            
             parse_result: ParseResult = Parser.from_text(cfg, prompt + " " + completion).parse()
             parse_result.ast.future_bins = [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins]
             records = builder.build_rows(
@@ -94,7 +98,7 @@ def main(
                 symbol,
                 window_id,
                 zone_quality,
-                n_augments=10
+                n_augments=n_augments
             )
                         
             for record in records:
@@ -130,4 +134,4 @@ def main(
 
 if __name__ == '__main__':
     cfg: AppConfig = load_config("configs")
-    main(cfg, "data/filter", "data/dataset")
+    main(cfg, "data/filter", "data/dataset", seed=42, n_augments=4)

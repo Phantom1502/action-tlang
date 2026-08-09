@@ -3,11 +3,13 @@ bin_max: 2047
 n_bins: 2048
 zone_width_min_bins: 50
 zone_width_max_bins: 100
-zone_score_weight: 0.1
 zone_extend_multiplier: 1.0
 zone_last_n_touch: 10
 sl_min_dist_bins: 50
 sl_max_dist_bins: 200
+trade_fee_bins: 10
+entry_score_weight: 0.1
+outcome_score_weight: 0.2
 digit_pad: 4
 rr_min: 1
 rr_max: 9

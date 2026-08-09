@@ -8,11 +8,13 @@ class BaseConfig:
     n_bins: int
     zone_width_min_bins: int
     zone_width_max_bins: int
-    zone_score_weight: float
     zone_extend_multiplier: float
     zone_last_n_touch: int
     sl_min_dist_bins: int
     sl_max_dist_bins: int
+    trade_fee_bins: int
+    entry_score_weight: float
+    outcome_score_weight: float
     digit_pad: int
     rr_min: int
     rr_max: int
@@ -72,10 +74,43 @@ class TrainingConfig:
                 object.__setattr__(self, field, int(val))
             except (ValueError, TypeError):
                 raise TypeError(f"[{self.phase}] {field} không thể convert sang int: {val!r}")
-      
+     
+@dataclass(frozen=True)
+class GroupBuffState:
+    ema_ratio: float
+    buff: float
+    prev_error: float = 0.0
+    
+@dataclass(frozen=True)
+class ActionBuffConfig:
+    buff_min: float
+    buff_max: float
+    buff_init: float
+    target_ratio: float
+    
+    def __post_init__(self) -> None:
+        if self.buff_min > self.buff_max:
+            raise ValueError(...)
+        if not (self.buff_min <= self.buff_init <= self.buff_max):
+            raise ValueError(...)
+        
+@dataclass(frozen=True)
+class ZoneBuffConfig:
+    action_buffs: Dict[str, ActionBuffConfig]
+        
+@dataclass(frozen=True)
+class RoundConfig:
+    round_id: str
+    alpha: float
+    kp: float
+    kd: float
+    step_max: int
+    zone_buffs: Dict[str, ZoneBuffConfig]
+     
 @dataclass(frozen=True)
 class AppConfig:
     base: BaseConfig
     window: WindowConfig
     models: ModelsConfig
     training: Dict[str, TrainingConfig]
+    rounds: Dict[str, RoundConfig]

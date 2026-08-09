@@ -9,3 +9,4 @@ app/training/model/__pycache__/
 data/dataset/
 data/filter/
 data/raw/
+app/training/reward/__pycache__/
