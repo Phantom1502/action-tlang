@@ -5,7 +5,7 @@ logger = logging.getLogger("app.train.reward.stats_persist_callback")
 
 from transformers import TrainerCallback
 from app.config.schema import RoundConfig
-from app.training.reward.action_buff_controller import EMABuffController
+from app.training.reward.action_buff_controller import EMABuffController, DEFAULT_BUFF_FILENAME
 from app.training.reward.stats_collector import StatsCollector, stats_path_for_rank
 
 from transformers.trainer_utils import PREFIX_CHECKPOINT_DIR
@@ -53,7 +53,7 @@ class StatsPersistCallback(TrainerCallback):
 
         ckpt_dir = os.path.join(args.output_dir, f"{PREFIX_CHECKPOINT_DIR}-{state.global_step}")
         if os.path.isdir(ckpt_dir):
-            self.buff_controller.save(os.path.join(ckpt_dir, "zone_buff_state.json"))
+            self.buff_controller.save(os.path.join(ckpt_dir, DEFAULT_BUFF_FILENAME))
             logger.info(f"Đã lưu zone_buff_state -> {ckpt_dir}/")
         else:
             logger.warning(f"Checkpoint dir {ckpt_dir} chưa tồn tại lúc on_save — bỏ qua lưu state.")

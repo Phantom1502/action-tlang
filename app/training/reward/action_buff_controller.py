@@ -10,6 +10,8 @@ from app.config import (
     get_buff_group
 )
 
+DEFAULT_BUFF_FILENAME = "action_buff_state.json"
+
 @dataclass(frozen=True)
 class GroupBuffState:
     ema_ratio: float
@@ -135,7 +137,7 @@ class EMABuffController:
         buff_controller = EMABuffController(groups=groups, namespace="action")
 
         import os
-        buff_path = os.path.join(resume_checkpoint, "action_buff_state.json") if resume_checkpoint else None
+        buff_path = os.path.join(resume_checkpoint, DEFAULT_BUFF_FILENAME) if resume_checkpoint else None
         if buff_path and Path(buff_path).exists():
             print(f"Load action buff state from {buff_path}")
             buff_controller.load(buff_path)
