@@ -135,6 +135,7 @@ class TLangReward:
         buff_controller: Optional[EMABuffController] = None,
         stats_collector: Optional[StatsCollector] = None
     ):
+        self.__name__ = "TLangReward"
         self.cfg = cfg
         self.buff_controller = buff_controller
         self.stats_collector = stats_collector
