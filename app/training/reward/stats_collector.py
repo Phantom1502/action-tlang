@@ -81,6 +81,7 @@ class StatsCollector:
         return dict(counts), total
 
     def counts_since_step_boundary(self, zone_type: str, key_fn) -> Tuple[Dict[str, int], int]:
+        print(f"[debug] zone_type values seen this window: {Counter(r.zone_type for r in self._records[self._step_boundary:])}")
         """Dùng để nuôi buff — CHỈ đếm records kể từ watermark step trước."""
         return self._filter_and_count(self._records[self._step_boundary:], zone_type, key_fn)
 

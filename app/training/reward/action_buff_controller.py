@@ -29,7 +29,6 @@ class EMABuffController:
         
     def init(self, round_config: RoundConfig):
         for zone_key, action_key in self.groups:
-            print(f"Init buff for {zone_key}:{action_key}")
             if zone_key not in self.states:
                 self.states[zone_key] = {}
                 
@@ -74,6 +73,7 @@ class EMABuffController:
                 buff=new_buff,
                 prev_error=error
             )
+            print(f"{self.namespace}: {zone_key} {action_key} ema_ratio={ema_ratio:.4f}, buff={new_buff:.4f}, error={error:.4f}, d_error={d_error:.4f}")
     
     def get_buff(self, zone_key: str, action_key: str) -> float:
         state = self.states.get(zone_key, {}).get(action_key)

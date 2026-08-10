@@ -9,9 +9,6 @@ buff_controller = EMABuffController.load_or_init(
     round_config, 
     resume_checkpoint="."
 )
-
-print(buff_controller.states)
-
 stat_collector = StatsCollector()
 
 meta = TaskRolloutMeta(
@@ -62,24 +59,6 @@ meta = TaskRolloutMeta(
 )
 stat_collector.log(meta)
 
-for zone_key in round_config.zone_buffs.keys():
-    action_counts, total = stat_collector.counts_since_step_boundary(
-        zone_key, key_fn=lambda r: r.action_type
-    )
-    buff_controller.on_step_end(
-        round_config=round_config,
-        zone_key=zone_key,
-        counts=action_counts,
-        total=total
-    )
-    
-print(buff_controller.get_buff("support", "BUY"))
-print(buff_controller.get_buff("support", "HOLD"))
-print(buff_controller.get_buff("resistance", "SELL"))
-print(buff_controller.get_buff("resistance", "HOLD"))
-
-print(buff_controller.states)
-
 meta = TaskRolloutMeta(
     well_formed=True,
     semantic_passed=True,
@@ -129,21 +108,16 @@ meta = TaskRolloutMeta(
 stat_collector.log(meta)
 
 for zone_key in round_config.zone_buffs.keys():
+    print(f"Count for {zone_key}")
     action_counts, total = stat_collector.counts_since_step_boundary(
         zone_key, key_fn=lambda r: r.action_type
     )
+    print(action_counts, total)
     buff_controller.on_step_end(
         round_config=round_config,
         zone_key=zone_key,
         counts=action_counts,
         total=total
     )
-    
-print(buff_controller.get_buff("support", "BUY"))
-print(buff_controller.get_buff("support", "HOLD"))
-print(buff_controller.get_buff("resistance", "SELL"))
-print(buff_controller.get_buff("resistance", "HOLD"))
-
-print(buff_controller.states)
 
 stat_collector.print_summary()
