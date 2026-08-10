@@ -8,6 +8,7 @@ from app.lang import (
     ActionNode,
     CandleNode,
     SemanticChecker,
+    Parser,
     ParseResult,
     SemanticResult
 )
@@ -359,6 +360,6 @@ if __name__ == "__main__":
     )
     print(f"Outcome: {outcome}")
     
-    tlang = TlangReward(cfg)
+    tlang = TLangReward(cfg)
     reward = tlang.compute_reward(prompt, completion, program.future_bins)
     print(f"Reward: {reward}")
