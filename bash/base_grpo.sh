@@ -24,7 +24,7 @@ python -m app.training.train_grpo \
     --top_p 1.0 \
     --top_k 0 \
     --min_p 0.02 \
-    --num_generations 16 \
+    --num_generations 8 \
     \
     --output_dir "./output/base_grpo" \
     --repo_id "sullivan1502/base-action-grpo" \
