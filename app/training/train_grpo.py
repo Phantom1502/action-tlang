@@ -230,6 +230,21 @@ def main(cfg: AppConfig):
         args.output_dir
     )
     
+    tlang_reward = TLangReward(
+        cfg,
+        buff_controller=buff_controller,
+        stats_collector=stats_collector,
+    )
+    
+    trainer = GRPOTrainer(
+        model=model,
+        reward_funcs=tlang_reward,
+        args=training_args,
+        train_dataset=raw,
+        processing_class=tok,
+        callbacks=[stats_persist_callback],
+    )
+    
     if training_args.beta != 0.0:
         if not args.source_repo:
             raise RuntimeError(
@@ -246,21 +261,6 @@ def main(cfg: AppConfig):
             p.requires_grad = False
         ref_model.to(model.device)
         trainer.ref_model = ref_model
-    
-    tlang_reward = TLangReward(
-        cfg,
-        buff_controller=buff_controller,
-        stats_collector=stats_collector,
-    )
-    
-    trainer = GRPOTrainer(
-        model=model,
-        reward_funcs=tlang_reward,
-        args=training_args,
-        train_dataset=raw,
-        processing_class=tok,
-        callbacks=[stats_persist_callback],
-    )
     
     trainer.train(resume_from_checkpoint=resume_checkpoint)
     
