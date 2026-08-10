@@ -5,15 +5,14 @@ import os
 from collections import Counter, defaultdict
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 
 def stats_path_for_rank(output_dir: str, round_id: str, rank: int) -> str:
     """NGUỒN DUY NHẤT cho quy ước đặt tên file stats — dùng chung bởi cả
-    save-side (StatsPersistCallbackV2.on_save/on_train_end) LẪN load-side
+    save-side (StatsPersistCallback.on_save/on_train_end) LẪN load-side
     (train_grpo.py lúc resume). KHÔNG định nghĩa lại công thức này ở nơi
-    khác — đổi 1 chỗ, mọi nơi ăn theo, tránh lệch tên file giữa lúc lưu và
-    lúc load."""
+    khác — đổi 1 chỗ, mọi nơi ăn theo."""
     return os.path.join(output_dir, f"{round_id}_stats_rank{rank}.json")
 
 
@@ -21,17 +20,27 @@ def stats_path_for_rank(output_dir: str, round_id: str, rank: int) -> str:
 class TaskRolloutMeta:
     well_formed: bool
     semantic_passed: bool
-    zone_type: Optional[str]          # "NO_ZONE" / "SUP_ZONE" / "RES_ZONE" — None nếu chưa pass gate
+    zone_type: Optional[str]          # "support" / "resistance" — None nếu chưa pass gate
     action_type: Optional[str]        # "BUY" / "SELL" / "HOLD" — None nếu chưa pass gate
-    buff_applied: Optional[float]     # = buff cộng theo [zone_type, action_type], None nếu chưa pass gate hoặc eval mode (buff_controller=None)
+    entry_quality: Optional[float]    # None nếu chưa pass gate
+    outcome: Optional[float]          # None nếu chưa pass gate
+    buff_applied: Optional[float]     # None nếu chưa pass gate hoặc eval mode (buff_controller=None)
+    rr: Optional[int] = None          # CHỈ có ở BUY/SELL — None với HOLD hoặc chưa pass gate.
+                                        # Dùng để theo dõi phân phối RR theo từng nhánh (zone_type,
+                                        # action_type) — phát hiện sớm nếu model suy biến về đúng
+                                        # 1 giá trị RR duy nhất bất kể context (mất khả năng
+                                        # exploration), giống lý do RREntropyController tồn tại ở
+                                        # bản v1 cũ (task khác, nhưng cùng động cơ theo dõi).
 
 
 class StatsCollector:
     """
     Nguồn DUY NHẤT cho cả report (print_summary(), gọi theo nhịp save_steps)
     LẪN nuôi buff (counts_since_step_boundary(), gọi theo nhịp optimizer
-    step) — task1 CHỈ có 1 task (zone), không cần tham số `task_id` như
-    StatsCollectorV2 bản v2 (có 2 task zone/action).
+    step). Buff task2 tách theo TỪNG zone_type riêng (EMABuffController
+    task2 gọi on_step_end() 2 lần/step — 1 lần/zone_type) — vì vậy mọi hàm
+    đếm ở đây đều nhận `zone_type` làm tham số bắt buộc, KHÔNG gộp chung
+    như task1 (task1 chỉ 1 chiều zone_type, task2 2 chiều zone_type×action_type).
 
     mark_step_boundary() chỉ dịch 1 con trỏ index, KHÔNG xoá gì — reset()
     (gọi ở on_save, cùng nhịp save_steps) mới thật sự xoá records VÀ đưa
@@ -54,9 +63,9 @@ class StatsCollector:
 
     @staticmethod
     def _filter_and_count(records: Sequence[TaskRolloutMeta], zone_type: str, key_fn) -> Tuple[Dict[str, int], int]:
-        """CHỈ đếm record đã pass gate (well_formed + semantic_passed) —
-        khớp đúng quy ước "buff chỉ tính sau khi pass gate" đã chốt thiết
-        kế, và cũng tránh report bị nhiễu bởi completion hỏng."""
+        """CHỈ đếm record đã pass gate (well_formed + semantic_passed) VÀ
+        đúng zone_type — khớp quy ước "buff chỉ tính sau khi pass gate",
+        và mỗi zone_type có buff riêng nên phải lọc trước khi đếm."""
         counts: Dict[str, int] = defaultdict(int)
         total = 0
         for r in records:
@@ -73,7 +82,7 @@ class StatsCollector:
 
     def counts_since_step_boundary(self, zone_type: str, key_fn) -> Tuple[Dict[str, int], int]:
         """Dùng để nuôi buff — CHỈ đếm records kể từ watermark step trước."""
-        return self._filter_and_count(self._records[self._step_boundary:], zone_type,key_fn)
+        return self._filter_and_count(self._records[self._step_boundary:], zone_type, key_fn)
 
     def full_history_counts(self, zone_type: str, key_fn) -> Tuple[Dict[str, int], int]:
         """Dùng cho report — đếm TOÀN BỘ records kể từ lần reset() gần nhất."""
@@ -81,104 +90,83 @@ class StatsCollector:
 
     def summary(self) -> Dict[str, Dict[str, dict]]:
         """
-        Breakdown theo trend -> zone_type, CHỈ tính trên record đã pass gate
-        (well_formed + semantic_passed). Không có r_multiple/rr/win_rate như
-        v1/v2 (task1 không có outcome thật, chỉ có zone_quality liên tục).
-
-        touch_rate: tỉ lệ is_touched=True trong số record CÓ zone (SUP/RES)
-        của đúng (trend, zone_type) đó — None cho NO_ZONE (is_touched luôn
-        None ở nhóm này, không có gì để tính tỉ lệ).
+        Breakdown theo zone_type -> action_type, CHỈ tính trên record đã
+        pass gate (well_formed + semantic_passed). Bao gồm avg_rr +
+        rr_distribution CHO BUY/SELL (HOLD không có RR, list rỗng -> None).
         """
-        by_trend_total: Dict[str, int] = defaultdict(int)
+        by_zone_total: Dict[str, int] = defaultdict(int)
         raw: Dict[str, Dict[str, dict]] = defaultdict(
-            lambda: defaultdict(lambda: {"count": 0, "zone_qualities": [], "buffs": [], "touched": []})
+            lambda: defaultdict(lambda: {
+                "count": 0, "entry_qualities": [], "outcomes": [], "buffs": [], "rrs": [],
+            })
         )
         for r in self._records:
-            if r.trend is None or not (r.well_formed and r.semantic_passed) or r.zone_type is None:
+            if not (r.well_formed and r.semantic_passed) or r.zone_type is None:
                 continue
-            by_trend_total[r.trend] += 1
-            entry = raw[r.trend][r.zone_type]
+            by_zone_total[r.zone_type] += 1
+            entry = raw[r.zone_type][r.action_type]
             entry["count"] += 1
-            if r.zone_quality is not None:
-                entry["zone_qualities"].append(r.zone_quality)
+            if r.entry_quality is not None:
+                entry["entry_qualities"].append(r.entry_quality)
+            if r.outcome is not None:
+                entry["outcomes"].append(r.outcome)
             if r.buff_applied is not None:
                 entry["buffs"].append(r.buff_applied)
-            if r.is_touched is not None:
-                entry["touched"].append(r.is_touched)
+            if r.rr is not None:
+                entry["rrs"].append(r.rr)
 
         result: Dict[str, Dict[str, dict]] = {}
-        for trend, zone_types in raw.items():
-            result[trend] = {}
-            total = by_trend_total[trend]
-            for zone_type, entry in zone_types.items():
-                zqs = entry["zone_qualities"]
+        for zone_type, action_types in raw.items():
+            result[zone_type] = {}
+            total = by_zone_total[zone_type]
+            for action_type, entry in action_types.items():
+                eql = entry["entry_qualities"]
+                outcomes = entry["outcomes"]
                 buffs = entry["buffs"]
-                touched = entry["touched"]
-                result[trend][zone_type] = {
+                rrs = entry["rrs"]
+                result[zone_type][action_type] = {
                     "count": entry["count"],
-                    "freq_within_trend": entry["count"] / total if total else 0.0,
-                    "avg_zone_quality": (sum(zqs) / len(zqs)) if zqs else None,
+                    "freq_within_zone": entry["count"] / total if total else 0.0,
+                    "avg_entry_quality": (sum(eql) / len(eql)) if eql else None,
+                    "avg_outcome": (sum(outcomes) / len(outcomes)) if outcomes else None,
                     "avg_buff": (sum(buffs) / len(buffs)) if buffs else None,
-                    "touch_rate": (sum(touched) / len(touched)) if touched else None,
+                    "avg_rr": (sum(rrs) / len(rrs)) if rrs else None,
+                    "rr_distribution": dict(sorted(Counter(rrs).items())) if rrs else None,
                 }
         return result
-
-    def touch_rate_by_zone_type(self) -> Dict[str, Optional[float]]:
-        """Tỉ lệ is_touched=True TOÀN BỘ lịch sử (không stratify theo
-        trend), CHỈ cho zone_type có is_touched không None (SUP_ZONE,
-        RES_ZONE) — NO_ZONE trả None (không áp dụng khái niệm touch)."""
-        counts: Dict[str, List[bool]] = defaultdict(list)
-        for r in self._records:
-            if not (r.well_formed and r.semantic_passed) or r.zone_type is None or r.is_touched is None:
-                continue
-            counts[r.zone_type].append(r.is_touched)
-        return {
-            zt: (sum(vals) / len(vals) if vals else None)
-            for zt, vals in counts.items()
-        }
 
     def print_summary(self) -> None:
         n = len(self._records)
         n_wf = sum(1 for r in self._records if r.well_formed)
         n_sem = sum(1 for r in self._records if r.well_formed and r.semantic_passed)
 
-        print("=== StatsCollector summary (task1 — zone) ===")
+        print("=== StatsCollector summary (task2 — action) ===")
         print(f"n_records = {n}")
         if n:
             print(f"well_form_rate = {n_wf / n * 100:.1f}%")
         if n_wf:
             print(f"semantic_pass_rate (trong số well-formed) = {n_sem / n_wf * 100:.1f}%")
 
-        print("\n-- Chi tiết theo trend -> zone_type (đã pass gate) --")
+        print("\n-- Chi tiết theo zone -> action (đã pass gate) --")
         detail = self.summary()
         if not detail:
             print("  (chưa có record nào pass gate)")
-        for trend, zone_types in detail.items():
-            print(f"trend={trend}")
-            for zone_type, stat in zone_types.items():
-                avg_zq = f"{stat['avg_zone_quality']:.3f}" if stat["avg_zone_quality"] is not None else "-"
+        for zone_type, action_types in detail.items():
+            print(f"zone_type={zone_type}")
+            for action_type, stat in action_types.items():
+                avg_eq = f"{stat['avg_entry_quality']:.3f}" if stat["avg_entry_quality"] is not None else "-"
+                avg_out = f"{stat['avg_outcome']:.3f}" if stat["avg_outcome"] is not None else "-"
                 avg_buff = f"{stat['avg_buff']:.3f}" if stat["avg_buff"] is not None else "-"
-                touch_rate = f"{stat['touch_rate']*100:.1f}%" if stat["touch_rate"] is not None else "-"
-                print(
-                    f"  {zone_type:<10} count={stat['count']:<6} freq={stat['freq_within_trend']*100:5.1f}%  "
-                    f"avg_zone_quality={avg_zq:>7}  avg_buff={avg_buff:>7}  touch_rate={touch_rate:>6}"
+                avg_rr = f"{stat['avg_rr']:.2f}" if stat.get("avg_rr") is not None else "-"
+                line = (
+                    f"  {action_type:<10} count={stat['count']}({stat['freq_within_zone']*100:5.1f}%)  "
+                    f"ENTRY_QUALITY={avg_eq:>7} OUTCOME={avg_out:>7} avg_buff={avg_buff:>7} avg_RR={avg_rr:>5}"
                 )
-
-        print("\n-- Zone_type counts (toàn bộ lịch sử từ lần reset gần nhất, đã pass gate) --")
-        zone_counts, zone_total = self.full_history_counts(key_fn=lambda r: r.zone_type)
-        for zone_type in sorted(zone_counts.keys()):
-            n_zt = zone_counts[zone_type]
-            ratio = n_zt / zone_total if zone_total else 0.0
-            print(f"  {zone_type:<10} count={n_zt:<6} ratio={ratio * 100:5.1f}%")
-
-        print("\n-- Tỉ lệ zone đã CHẠM (is_touched, toàn bộ lịch sử, KHÔNG stratify theo trend) --")
-        touch_rates = self.touch_rate_by_zone_type()
-        if not touch_rates:
-            print("  (chưa có record nào có zone SUP/RES)")
-        for zone_type in sorted(touch_rates.keys()):
-            rate = touch_rates[zone_type]
-            rate_str = f"{rate * 100:.1f}%" if rate is not None else "-"
-            print(f"  {zone_type:<10} touch_rate={rate_str}")
+                dist = stat.get("rr_distribution")
+                if dist:
+                    dist_str = " ".join(f"{k}:{v}" for k, v in dist.items())
+                    line += f"  rr_dist=[{dist_str}]"
+                print(line)
 
     def to_list(self) -> List[dict]:
         return [asdict(r) for r in self._records]
@@ -195,6 +183,7 @@ class StatsCollector:
         if p.exists():
             data = json.loads(p.read_text(encoding="utf-8"))
             for d in data.get("records", []):
+                d.setdefault("rr", None)   # tương thích ngược file stats cũ chưa có field này
                 collector.log(TaskRolloutMeta(**d))
         return collector
 
@@ -207,6 +196,6 @@ class StatsCollector:
                 continue
             data = json.loads(p.read_text(encoding="utf-8"))
             for d in data.get("records", []):
-                d.setdefault("is_touched", None)   # tương thích ngược file stats cũ chưa có field này
+                d.setdefault("rr", None)
                 collector.log(TaskRolloutMeta(**d))
         return collector

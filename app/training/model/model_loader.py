@@ -77,3 +77,9 @@ class ModelLoader:
         
         logger.info(f"Chưa có checkpoint nào — bắt đầu từ source_repo: {source_repo}")
         return self._load_model_with_vocab_check(source_repo)
+    
+    def load_ref_model(
+        self,
+        source_repo: str,
+    ) -> LlamaForCausalLM:
+        return self._load_model_with_vocab_check(source_repo)

@@ -11,6 +11,7 @@ from app.lang import (
     ParseResult,
     SemanticResult
 )
+from app.training.reward.action_buff_controller import EMABuffController
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
 
 @dataclass
@@ -127,13 +128,15 @@ def partial_tp_forward_test(
 
     return realized_r - fee_in_r
 
-class TlangReward:
+class TLangReward:
     def __init__(
         self, 
         cfg: AppConfig,
+        buff_controller: Optional[EMABuffController] = None,
         stats_collector: Optional[StatsCollector] = None
     ):
         self.cfg = cfg
+        self.buff_controller = buff_controller
         self.stats_collector = stats_collector
         
     def common_check(
@@ -231,7 +234,10 @@ class TlangReward:
                     semantic_passed=False,
                     zone_type=None,
                     action_type=None,
+                    entry_quality=None,
+                    outcome=None,
                     buff_applied=None,
+                    rr=None
                 )
                 self.stats_collector.log(meta)
             return reward
@@ -243,6 +249,9 @@ class TlangReward:
         reward += score.entry_quality + score.outcome
         
         buff: Optional[float] = None
+        if self.buff_controller is not None:
+            buff = self.buff_controller.get_buff(program.think.zone.direction, program.action.action_type)
+            reward += buff
         
         if self.stats_collector is not None:
             meta = TaskRolloutMeta(
@@ -250,7 +259,10 @@ class TlangReward:
                 semantic_passed=True,
                 zone_type=program.think.zone.direction,
                 action_type=program.action.action_type,
+                entry_quality=score.entry_quality,
+                outcome=score.outcome,
                 buff_applied=buff,
+                rr=program.action.rr
             )
             self.stats_collector.log(meta)
         return reward

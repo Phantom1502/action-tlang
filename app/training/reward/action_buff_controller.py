@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Dict, Sequence
+from typing import Dict, Sequence, Tuple
 from app.config import (
     RoundConfig,
     ActionBuffConfig,
@@ -22,7 +22,7 @@ def _clip(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
 
 class EMABuffController:
-    def __init__(self, groups: Sequence[(str, str)], namespace: str):
+    def __init__(self, groups: Sequence[Tuple[str, str]], namespace: str):
         self.groups = tuple(groups)
         self.namespace = namespace
         self.states: Dict[str, Dict[str, GroupBuffState]] = {}
@@ -76,7 +76,7 @@ class EMABuffController:
             )
     
     def get_buff(self, zone_key: str, action_key: str) -> float:
-        state = self.states.get(zone_key).get(action_key)
+        state = self.states.get(zone_key, {}).get(action_key)
         if state is None:
             return 0.0
         return state.buff
