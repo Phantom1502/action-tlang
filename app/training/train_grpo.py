@@ -253,9 +253,8 @@ def main(cfg: AppConfig):
                 "kể cả khi model chính đang resume từ checkpoint khác."
             )
         logger.info(f"Pin ref_model vào nguồn init cố định của round: {args.source_repo} (KHÔNG đổi theo resume)")
-        resume_checkpoint = resolve_resume_checkpoint(args.output_dir, args.source_repo)
-        model_loader = ModelLoader(cfg.models, args.model_size)
-        ref_model = model_loader.load_ref_model(resume_checkpoint)
+        ref_model_loader = ModelLoader(cfg.models, args.model_size)
+        ref_model = ref_model_loader.load_ref_model(args.source_repo)
         ref_model.eval()
         for p in ref_model.parameters():
             p.requires_grad = False
