@@ -58,7 +58,9 @@ class ActionSFTDataset:
         if rng.random() >= self.augment_prob:
             print("Augment")
             augmenter = DataAugmenter(rng, self.cfg.base.n_bins)
-            _, program = augmenter.augment_shift(program, n_augments=1)[0]
+            aug_list = augmenter.augment_shift(program, n_augments=1)
+            if aug_list and len(aug_list) > 0:
+                _, program = aug_list[0]
         
         record = generator.generate_one(program)
         if record is None:
