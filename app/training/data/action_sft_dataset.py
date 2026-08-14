@@ -48,7 +48,7 @@ class ActionSFTDataset:
         
     def _transform_one(self, prompt: str, future_bins: str, window_id: str) -> Dict[str, str]:
         seed = _gen_seed(window_id)
-        generator = ActionGenerator(cfg, seed=seed)
+        generator = ActionGenerator(self.cfg, seed=seed)
         parse_result = Parser.from_text(self.cfg, prompt).parse()
         if not parse_result.is_well_formed():
             print("Sẽ luôn nhận được lỗi 'Mong đợi <action>, nhận được EOF'")
