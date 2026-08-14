@@ -22,7 +22,6 @@ class DataAugmenter:
         n_augments: int = 1
     ) -> List[Tuple[str, ProgramNode]]:
         if program.chart is None or program.think is None:
-            print("augment_shift: chart or think is None")
             return []
         lows = [c.low for c in program.chart.candles]
         highs = [c.high for c in program.chart.candles]
@@ -38,12 +37,10 @@ class DataAugmenter:
         shift_min = -min_low
         shift_max = (self.n_bins - 1) - max_high
         if shift_min > shift_max:
-            print("augment_shift: shift_min > shift_max")
             return []
 
         choices = [d for d in range(shift_min, shift_max + 1) if d != 0]
         if not choices:
-            print("augment_shift: choices is empty")
             return []
 
         n_augments = min(n_augments, len(choices))

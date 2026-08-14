@@ -56,7 +56,6 @@ class ActionSFTDataset:
         
         rng = random.Random(seed)
         if rng.random() >= self.augment_prob:
-            print("Augment")
             augmenter = DataAugmenter(rng, self.cfg.base.n_bins)
             aug_list = augmenter.augment_shift(program, n_augments=1)
             if aug_list and len(aug_list) > 0:
