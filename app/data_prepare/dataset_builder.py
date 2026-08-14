@@ -64,8 +64,8 @@ def main(
     import hashlib
 
     data_files = {
-        "train": f"{input_dir}/train.parquet",
-        "val": f"{input_dir}/val.parquet"
+        "train": f"{input_dir}/train-checkpoint-2500.parquet",
+        "val": f"{input_dir}/val-checkpoint-2500.parquet"
     }
     dataset = load_dataset("parquet", data_files=data_files)
     
@@ -103,7 +103,7 @@ def main(
                         
             for record in records:
                 prompts.append(record["prompt"])
-                completions.append(record["completion"])
+                #completions.append(record["completion"])
                 future_bins_list.append(record["future_bins"])
                 symbols.append(record["symbol"])
                 zone_scores.append(record["zone_score"])
@@ -111,7 +111,7 @@ def main(
         # Trả về các cột mới cho Dataset LLM
         return {
             "prompt": prompts,
-            "completion": completions,
+            #"completion": completions,
             "future_bins": future_bins_list,
             "symbol": symbols,
             "zone_score": zone_scores,
@@ -134,4 +134,4 @@ def main(
 
 if __name__ == '__main__':
     cfg: AppConfig = load_config("configs")
-    main(cfg, "data/filter", "data/dataset", seed=42, n_augments=4)
+    main(cfg, "data/filter", "data/dataset", seed=42, n_augments=0)
