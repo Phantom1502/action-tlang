@@ -50,8 +50,6 @@ class ActionSFTDataset:
         seed = _gen_seed(window_id)
         generator = ActionGenerator(self.cfg, seed=seed)
         parse_result = Parser.from_text(self.cfg, prompt).parse()
-        if not parse_result.is_well_formed():
-            print("Sẽ luôn nhận được lỗi 'Mong đợi <action>, nhận được EOF'")
             
         program = parse_result.ast
         program.future_bins =  [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins]
