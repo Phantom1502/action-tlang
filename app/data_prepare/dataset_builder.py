@@ -103,7 +103,7 @@ def main(
                         
             for record in records:
                 prompts.append(record["prompt"])
-                #completions.append(record["completion"])
+                completions.append(record["completion"])
                 future_bins_list.append(record["future_bins"])
                 symbols.append(record["symbol"])
                 zone_scores.append(record["zone_score"])
@@ -111,7 +111,7 @@ def main(
         # Trả về các cột mới cho Dataset LLM
         return {
             "prompt": prompts,
-            #"completion": completions,
+            "completion": completions,
             "future_bins": future_bins_list,
             "symbol": symbols,
             "zone_score": zone_scores,
