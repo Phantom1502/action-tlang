@@ -29,9 +29,9 @@ LEAF_RECIPES = {
 }
 
 def _pick_sl_rr(
-    rng: random.Random, 
-    action_type: str, 
-    current_price: int, 
+    rng: random.Random,
+    action_type: str,
+    current_price: int,
     zone: ZoneNode,
     sl_min_dist: int,
     sl_max_dist: int,
@@ -40,26 +40,23 @@ def _pick_sl_rr(
     rr_min: int,
     rr_max: int
 ) -> Optional[Tuple[int, int]]:
-    # pick sl
-    dist_candidates = list(range(sl_min_dist, sl_max_dist + 1))
-    rng.shuffle(dist_candidates)
-    for dist in dist_candidates:
-        if action_type == "BUY":
-            sl = current_price - dist
-            if not (bin_min <= sl < zone.lower_bin): 
-                continue
-        else:
-            sl = current_price + dist
-            if not (zone.upper_bin < sl <= bin_max):
-                continue
+    if action_type == "BUY":
+        # sl = current_price - dist, dist in [min,max] -> sl in [cp-max, cp-min]
+        # ràng buộc thêm: bin_min <= sl < zone.lower_bin
+        lo = max(bin_min, current_price - sl_max_dist)
+        hi = min(zone.lower_bin - 1, current_price - sl_min_dist)
+    else:  # SELL
+        lo = max(zone.upper_bin + 1, current_price + sl_min_dist)
+        hi = min(bin_max, current_price + sl_max_dist)
 
-        # pick rr
-        rr_candidates = list(range(rr_min, rr_max + 1))
-        rng.shuffle(rr_candidates)
-        rr = rng.choice(rr_candidates)
-        return sl, rr
-
-    return None
+    if lo > hi:
+        return None
+    sl = rng.randint(lo, hi)
+    
+    rr_candidates = list(range(rr_min, rr_max + 1))
+    rng.shuffle(rr_candidates)
+    rr = rng.choice(rr_candidates)
+    return sl, rr
 
 @dataclass
 class GeneratedSample:

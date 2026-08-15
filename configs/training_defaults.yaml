@@ -11,7 +11,7 @@ sft:
   gradient_accumulation_steps: 64
   learning_rate: 5e-5
   warmup_steps: 30
-  max_steps: 20000
+  max_steps: 10000
   logging_steps: 10
   save_steps: 50
 grpo:
