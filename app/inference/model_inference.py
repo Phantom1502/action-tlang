@@ -27,7 +27,7 @@ class ModelInference:
         
         # --- Tokenizer: pin cùng revision với model nếu có, giữ quirk
         # add_eos_token=False/add_bos_token=True/padding_side=left (batch generate). ---
-        self.tok = load_tokenizer(repo_id=tokenizer_repo or model_repo, revision=revision, allow_local_fallback=False)
+        self.tok = load_tokenizer(repo_id=tokenizer_repo or model_repo, revision=revision)
         self.tok.add_eos_token = False
         self.tok.add_bos_token = True
         self.tok.padding_side = "left"
