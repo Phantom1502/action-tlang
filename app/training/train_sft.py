@@ -92,7 +92,7 @@ def main(cfg: AppConfig) -> None:
     data_module = make_data_module(tok, data_args, is_pretrain=False)
     from app.training.data import ActionSFTDataset
     data_module = {
-        "train_dataset": ActionSFTDataset(data_module["train_dataset"], cfg),
+        "train_dataset": ActionSFTDataset(data_module["train_dataset"], cfg, augment_prob=0.0),
         "eval_dataset": data_module["eval_dataset"],
         "data_collator": data_module["data_collator"],
     }

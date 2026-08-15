@@ -6,7 +6,7 @@ zone_width_max_bins: 100
 zone_extend_multiplier: 1.0
 zone_last_n_touch: 10
 sl_min_dist_bins: 50
-sl_max_dist_bins: 200
+sl_max_dist_bins: 201
 trade_fee_bins: 10
 entry_score_weight: 0.1
 outcome_score_weight: 0.2
