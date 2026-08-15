@@ -32,7 +32,7 @@ class ActionSFTDataset:
         if not (0.0 <= augment_prob <= 1.0):
             raise ValueError(f"augment_prob phải trong [0,1], nhận {augment_prob}")
         
-        required_cols = {"prompt", "future_bins", "window_id"}
+        required_cols = {"prompt", "completion", "future_bins", "window_id"}
         missing = required_cols - set(base_dataset.column_names)
         if missing:
             raise ValueError(
@@ -46,26 +46,31 @@ class ActionSFTDataset:
         self._visitor = ASTVisitor(digit_pad=cfg.base.digit_pad)
         self.dataset = base_dataset.with_transform(self._transform_batch)
         
-    def _transform_one(self, prompt: str, future_bins: str, window_id: str) -> Dict[str, str]:
-        seed = _gen_seed(window_id)
-        generator = ActionGenerator(cfg, seed=seed)
+    def _transform_one(self, prompt: str, completion: str, future_bins: str, window_id: str) -> Dict[str, str]:
+        seed_augment = _gen_seed(window_id)
+        seed_generate = _gen_seed(window_id)
+        generator = ActionGenerator(self.cfg, seed=seed_generate)
         parse_result = Parser.from_text(self.cfg, prompt).parse()
-        if not parse_result.is_well_formed():
-            print("Sẽ luôn nhận được lỗi 'Mong đợi <action>, nhận được EOF'")
             
         program = parse_result.ast
         program.future_bins =  [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins]
         
-        rng = random.Random(seed)
-        if rng.random() >= self.augment_prob:
-            print("Augment")
+        rng = random.Random(seed_augment)
+        if rng.random() <= self.augment_prob:
             augmenter = DataAugmenter(rng, self.cfg.base.n_bins)
-            _, program = augmenter.augment_shift(program, n_augments=1)[0]
+            aug_list = augmenter.augment_shift(program, n_augments=1)
+            if aug_list and len(aug_list) > 0:
+                _, program = aug_list[0]
         
         record = generator.generate_one(program)
         if record is None:
-            print("Vì sao gen ra None???")
+            print(f"Fallback: {prompt} {completion}")
+            return {
+                "prompt": prompt,
+                "completion": completion,
+            }
  
+        print(f"Original: {completion} | Generated: {record.completion}")
         return {
             "prompt": record.prompt,
             "completion": record.completion,
@@ -74,8 +79,8 @@ class ActionSFTDataset:
     def _transform_batch(self, batch: Dict[str, List[Any]]) -> Dict[str, List[str]]:
         prompts: List[str] = []
         completions: List[str] = []
-        for prompt, future_bins, window_id in zip(batch["prompt"], batch["future_bins"], batch["window_id"]):
-            out = self._transform_one(prompt, future_bins, window_id)
+        for prompt, completion, future_bins, window_id in zip(batch["prompt"], batch["completion"], batch["future_bins"], batch["window_id"]):
+            out = self._transform_one(prompt, completion, future_bins, window_id)
             prompts.append(out["prompt"])
             completions.append(out["completion"])
         return {"prompt": prompts, "completion": completions}
@@ -93,9 +98,7 @@ if __name__ == "__main__":
     
     # Lấy duy nhất phần tử đầu tiên (index 0) dưới dạng Dataset
     base_dataset = load_dataset("sullivan1502/action-data", split="train").select(range(1))
-
-    print(base_dataset)
     
-    dataset: Dataset = ActionSFTDataset(base_dataset, cfg, augment_prob=0.5)
+    dataset: Dataset = ActionSFTDataset(base_dataset, cfg, augment_prob=0.0)
     for _ in range(10):
-        print(next(iter(dataset)))
+        next(iter(dataset))

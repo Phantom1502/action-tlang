@@ -10,3 +10,4 @@ data/dataset/
 data/filter/
 data/raw/
 app/training/reward/__pycache__/
+app/inference/__pycache__/

@@ -1,4 +1,4 @@
-file = "data/filter/val-checkpoint-2500.parquet"
+file = r"data\dataset\val_llm.parquet"
 
 import pandas as pd
 
