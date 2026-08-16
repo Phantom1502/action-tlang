@@ -194,7 +194,7 @@ class TLangReward:
         if action.is_hold:
             return ActionTaskScore(
                 entry_quality=0.0,
-                outcome=2.0 * self.cfg.base.outcome_score_weight,
+                outcome=1.0 * self.cfg.base.outcome_score_weight,
             )
         
         entry_quality = measure_max_favorable_r(
