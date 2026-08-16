@@ -5,16 +5,16 @@ kd: 0.001
 step_max: 0.001
 entropys:
   r_entropy:
-    floor: 1.5
+    floor: 2.2
     ema_alpha: 0.7
     kp: 0.05
     kd: 0.01
     bonus_step_max: 0.01
-    bonus_cap: 0.16
+    bonus_cap: 0.1
   completions_entropy:
     floor: 2.5
     ema_alpha: 0.7
     kp: 0.05
     kd: 0.01
     bonus_step_max: 0.01
-    bonus_cap: 0.13
+    bonus_cap: 0.1
