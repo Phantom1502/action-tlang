@@ -324,7 +324,7 @@ class TLangReward:
 
             branch_list = [f"{metas[i].action_type}|{metas[i].sl}" for i in idx_list]
             h, probs = _entropy_and_probs_str(branch_list)
-            self.entropy_position_controller.record_entropy(h)
+            self.entropy_controller.record_entropy(h)
 
             if completion_strength <= 0.0:
                 continue
