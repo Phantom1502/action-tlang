@@ -291,6 +291,7 @@ class TLangReward:
         groups_idx: Dict[Any, List[int]] = defaultdict(list)
         for i, prompt in enumerate(prompts):
             if metas[i].well_formed and metas[i].semantic_passed:
+                meta[i].entropy = 0
                 groups_idx[prompt].append(i)
 
         # RR Entropy
@@ -312,6 +313,7 @@ class TLangReward:
                 max_suprisal = -math.log(1.0 / n)  # surprisal trần khi p=1/16 (hiếm nhất có thể trong group 16)
                 normalized_surprisal = surprisal / max_suprisal
                 rewards[i] += strength * normalized_surprisal
+                meta[i].entropy += strength * normalized_surprisal
                 
         completion_strength = self.entropy_controller.get_bonus()
         for idx_list in groups_idx.values():
@@ -331,6 +333,7 @@ class TLangReward:
                 max_suprisal = -math.log(1.0 / n)
                 normalized_surprisal = surprisal / max_suprisal
                 rewards[i] += completion_strength * normalized_surprisal
+                meta[i].entropy += completion_strength * normalized_surprisal
                 
         if self.stats_collector is not None:
             for meta in metas:
