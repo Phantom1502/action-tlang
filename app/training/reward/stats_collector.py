@@ -26,6 +26,7 @@ class TaskRolloutMeta:
     outcome: Optional[float]          # None nếu chưa pass gate
     sl: Optional[int] = None          # CHỈ có ở BUY/SELL — None nếu chưa pass gate, 0 neu HOLD
     rr: Optional[int] = None          # CHỈ có ở BUY/SELL — None nếu chưa pass gate, 0 neu HOLD
+    entropy: Optional[float] = None
 
 
 class StatsCollector:
@@ -93,7 +94,7 @@ class StatsCollector:
         by_zone_total: Dict[str, int] = defaultdict(int)
         raw: Dict[str, Dict[str, dict]] = defaultdict(
             lambda: defaultdict(lambda: {
-                "count": 0, "entry_qualities": [], "outcomes": [], "rrs": [],
+                "count": 0, "entry_qualities": [], "outcomes": [], "rrs": [], "entropy": []
             })
         )
         for r in self._records:
@@ -108,6 +109,8 @@ class StatsCollector:
                 entry["outcomes"].append(r.outcome)
             if r.rr is not None:
                 entry["rrs"].append(r.rr)
+            if r.entropy is not None:
+                entry["entropy"].append(r.entropy)
 
         result: Dict[str, Dict[str, dict]] = {}
         for zone_type, action_types in raw.items():
@@ -117,11 +120,13 @@ class StatsCollector:
                 eql = entry["entry_qualities"]
                 outcomes = entry["outcomes"]
                 rrs = entry["rrs"]
+                entropies = entry["entropy"]
                 result[zone_type][action_type] = {
                     "count": entry["count"],
                     "freq_within_zone": entry["count"] / total if total else 0.0,
                     "avg_entry_quality": (sum(eql) / len(eql)) if eql else None,
                     "avg_outcome": (sum(outcomes) / len(outcomes)) if outcomes else None,
+                    "avg_entropy": (sum(entropies) / len(entropies)) if entropies else None,
                     "avg_rr": (sum(rrs) / len(rrs)) if rrs else None,
                     "rr_distribution": dict(sorted(Counter(rrs).items())) if rrs else None,
                 }
@@ -148,10 +153,11 @@ class StatsCollector:
             for action_type, stat in action_types.items():
                 avg_eq = f"{stat['avg_entry_quality']:.3f}" if stat["avg_entry_quality"] is not None else "-"
                 avg_out = f"{stat['avg_outcome']:.3f}" if stat["avg_outcome"] is not None else "-"
+                avg_entropy = f"{stat['avg_entropy']:.3f}" if stat["avg_entropy"] is not None else "-"
                 avg_rr = f"{stat['avg_rr']:.2f}" if stat.get("avg_rr") is not None else "-"
                 line = (
                     f"  {action_type:<10} count={stat['count']}({stat['freq_within_zone']*100:5.1f}%)  "
-                    f"ENTRY_QUALITY={avg_eq:>7} OUTCOME={avg_out:>7} avg_RR={avg_rr:>5}"
+                    f"ENTRY_QUALITY={avg_eq:>7} OUTCOME={avg_out:>7} avg_entropy={avg_entropy:>5} avg_RR={avg_rr:>5}"
                 )
                 dist = stat.get("rr_distribution")
                 if dist:
@@ -175,6 +181,7 @@ class StatsCollector:
             data = json.loads(p.read_text(encoding="utf-8"))
             for d in data.get("records", []):
                 d.setdefault("rr", None)   # tương thích ngược file stats cũ chưa có field này
+                d.setdefault("entropy", None)
                 collector.log(TaskRolloutMeta(**d))
         return collector
 
@@ -188,5 +195,6 @@ class StatsCollector:
             data = json.loads(p.read_text(encoding="utf-8"))
             for d in data.get("records", []):
                 d.setdefault("rr", None)
+                d.setdefault("entropy", None)
                 collector.log(TaskRolloutMeta(**d))
         return collector

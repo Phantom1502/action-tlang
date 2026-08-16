@@ -245,8 +245,6 @@ class TLangReward:
                 sl=None,
                 rr=None
             )
-            if self.stats_collector is not None:
-                self.stats_collector.log(meta)
             return reward, meta
         
         # buff để tránh overlap vì outcome có giá trị âm là -1R * self.cfg.base.outcome_score_weight
@@ -265,8 +263,6 @@ class TLangReward:
             sl=program.action.sl_value,
             rr=program.action.rr_value
         )
-        if self.stats_collector is not None:
-            self.stats_collector.log(meta)
         return reward, meta
     
     def __call__(
@@ -336,6 +332,9 @@ class TLangReward:
                 normalized_surprisal = surprisal / max_suprisal
                 rewards[i] += completion_strength * normalized_surprisal
                 
+        if self.stats_collector is not None:
+            for meta in metas:
+                self.stats_collector.log(meta)      
         return rewards
     
 def _entropy_and_probs_str(values: Sequence[str]) -> Tuple[float, Dict[str, float]]:
