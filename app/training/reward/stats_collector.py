@@ -93,7 +93,7 @@ class StatsCollector:
         by_zone_total: Dict[str, int] = defaultdict(int)
         raw: Dict[str, Dict[str, dict]] = defaultdict(
             lambda: defaultdict(lambda: {
-                "count": 0, "entry_qualities": [], "outcomes": [], "buffs": [], "rrs": [],
+                "count": 0, "entry_qualities": [], "outcomes": [], "rrs": [],
             })
         )
         for r in self._records:
@@ -106,8 +106,6 @@ class StatsCollector:
                 entry["entry_qualities"].append(r.entry_quality)
             if r.outcome is not None:
                 entry["outcomes"].append(r.outcome)
-            if r.buff_applied is not None:
-                entry["buffs"].append(r.buff_applied)
             if r.rr is not None:
                 entry["rrs"].append(r.rr)
 
@@ -118,14 +116,12 @@ class StatsCollector:
             for action_type, entry in action_types.items():
                 eql = entry["entry_qualities"]
                 outcomes = entry["outcomes"]
-                buffs = entry["buffs"]
                 rrs = entry["rrs"]
                 result[zone_type][action_type] = {
                     "count": entry["count"],
                     "freq_within_zone": entry["count"] / total if total else 0.0,
                     "avg_entry_quality": (sum(eql) / len(eql)) if eql else None,
                     "avg_outcome": (sum(outcomes) / len(outcomes)) if outcomes else None,
-                    "avg_buff": (sum(buffs) / len(buffs)) if buffs else None,
                     "avg_rr": (sum(rrs) / len(rrs)) if rrs else None,
                     "rr_distribution": dict(sorted(Counter(rrs).items())) if rrs else None,
                 }
@@ -152,11 +148,10 @@ class StatsCollector:
             for action_type, stat in action_types.items():
                 avg_eq = f"{stat['avg_entry_quality']:.3f}" if stat["avg_entry_quality"] is not None else "-"
                 avg_out = f"{stat['avg_outcome']:.3f}" if stat["avg_outcome"] is not None else "-"
-                avg_buff = f"{stat['avg_buff']:.3f}" if stat["avg_buff"] is not None else "-"
                 avg_rr = f"{stat['avg_rr']:.2f}" if stat.get("avg_rr") is not None else "-"
                 line = (
                     f"  {action_type:<10} count={stat['count']}({stat['freq_within_zone']*100:5.1f}%)  "
-                    f"ENTRY_QUALITY={avg_eq:>7} OUTCOME={avg_out:>7} avg_buff={avg_buff:>7} avg_RR={avg_rr:>5}"
+                    f"ENTRY_QUALITY={avg_eq:>7} OUTCOME={avg_out:>7} avg_RR={avg_rr:>5}"
                 )
                 dist = stat.get("rr_distribution")
                 if dist:
