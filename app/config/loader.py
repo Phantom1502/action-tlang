@@ -11,9 +11,7 @@ from app.config.schema import (
     ModelsConfig,
     TrainingConfig,
     RoundConfig,
-    ZoneBuffConfig,
-    ActionBuffConfig,
-    GroupBuffState,
+    EntropyConfig,
 )
 
 # Cac file bat buoc phai co truc tiep trong config_dir (khong ke rounds/, duoc xu ly rieng).
@@ -99,56 +97,25 @@ def _build_training_config(data: Dict[str, Any], source: str) -> Dict[str, Train
     }
     
 def _build_round_config(data: Dict[str, Any], source: str) -> RoundConfig:
-    support_zone_buffs = _require_field(data, "support", source)
-    sup_actions = {
-        k: ActionBuffConfig(
-            buff_min=_require_field(v, "buff_min", source),
-            buff_max=_require_field(v, "buff_max", source),
-            buff_init=_require_field(v, "buff_init", source),
-            target_ratio=_require_field(v, "target_ratio", source),
+    entropys_raw = _require_field(data, "entropys", source)
+    entropys = {}
+    for entropy_type, entropy_data in entropys_raw.items():
+        buff_source = f"{source}.entropys.{entropy_type}"
+        entropys[entropy_type] = EntropyConfig(
+            floor=_require_field(entropy_data, "floor", buff_source),
+            ema_alpha=_require_field(entropy_data, "ema_alpha", buff_source),
+            kp=_require_field(entropy_data, "kp", buff_source),
+            kd=_require_field(entropy_data, "kd", buff_source),
+            bonus_step_max=_require_field(entropy_data, "bonus_step_max", buff_source),
+            bonus_cap=_require_field(entropy_data, "bonus_cap", buff_source),
         )
-        for k, v in support_zone_buffs.items()
-    }
-    support_buff: ZoneBuffConfig = ZoneBuffConfig(action_buffs=sup_actions)
-    
-    resistance_zone_buffs = _require_field(data, "resistance", source)
-    res_actions = {
-        k: ActionBuffConfig(
-            buff_min=_require_field(v, "buff_min", source),
-            buff_max=_require_field(v, "buff_max", source),
-            buff_init=_require_field(v, "buff_init", source),
-            target_ratio=_require_field(v, "target_ratio", source),
-        )
-        for k, v in resistance_zone_buffs.items()
-    }
-    resistance_buff: ZoneBuffConfig = ZoneBuffConfig(action_buffs=res_actions)
-    
     return RoundConfig(
         round_id=_require_field(data, "round_id", source),
         alpha=_require_field(data, "alpha", source),
         kp=_require_field(data, "kp", source),
         kd=_require_field(data, "kd", source),
         step_max=_require_field(data, "step_max", source),
-        zone_buffs={
-            "support": support_buff,
-            "resistance": resistance_buff,
-        },
-    )
-
-def get_buff_group(round_config: RoundConfig, group_name: str, action_name: str) -> GroupBuffState:
-    """
-    Pre-condition: config da load thanh cong.
-    Post-condition: tra ve dung GroupBuffState khop group_name.
-    Raises: KeyError neu group_name khong ton tai.
-    """
-    if group_name not in round_config.zone_buffs:
-        raise KeyError(f"Khong tim thay ZoneBuffConfig cho group_name={group_name!r}")
-    if action_name not in round_config.zone_buffs[group_name].action_buffs:
-        raise KeyError(f"Khong tim thay ActionBuffConfig cho action_name={action_name!r}")
-    return GroupBuffState(
-        ema_ratio=round_config.zone_buffs[group_name].action_buffs[action_name].target_ratio,
-        buff=round_config.zone_buffs[group_name].action_buffs[action_name].buff_init,
-        prev_error=0.0
+        entropys=entropys,
     )
     
 def load_config(config_dir: str = "./config") -> AppConfig:

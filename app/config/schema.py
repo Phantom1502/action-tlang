@@ -74,29 +74,16 @@ class TrainingConfig:
                 object.__setattr__(self, field, int(val))
             except (ValueError, TypeError):
                 raise TypeError(f"[{self.phase}] {field} không thể convert sang int: {val!r}")
-     
-@dataclass(frozen=True)
-class GroupBuffState:
-    ema_ratio: float
-    buff: float
-    prev_error: float = 0.0
     
 @dataclass(frozen=True)
-class ActionBuffConfig:
-    buff_min: float
-    buff_max: float
-    buff_init: float
-    target_ratio: float
-    
-    def __post_init__(self) -> None:
-        if self.buff_min > self.buff_max:
-            raise ValueError(...)
-        if not (self.buff_min <= self.buff_init <= self.buff_max):
-            raise ValueError(...)
-        
-@dataclass(frozen=True)
-class ZoneBuffConfig:
-    action_buffs: Dict[str, ActionBuffConfig]
+class EntropyConfig:
+    """Cau hinh buff cho DUNG 1 action_type (khong gop nhom nhu v1)."""
+    floor: float
+    ema_alpha: float
+    kp: float
+    kd: float
+    bonus_step_max: float
+    bonus_cap: float
         
 @dataclass(frozen=True)
 class RoundConfig:
@@ -105,7 +92,7 @@ class RoundConfig:
     kp: float
     kd: float
     step_max: int
-    zone_buffs: Dict[str, ZoneBuffConfig]
+    entropys: Dict[str, EntropyConfig]
      
 @dataclass(frozen=True)
 class AppConfig:

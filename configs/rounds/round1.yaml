@@ -3,25 +3,18 @@ alpha: 0.15
 kp: 0.001
 kd: 0.001
 step_max: 0.001
-support:
-  BUY:
-    buff_min: 0.00
-    buff_max: 0.10
-    buff_init: 0.00
-    target_ratio: 0.5
-  HOLD:
-    buff_min: 0.00
-    buff_max: 1.00
-    buff_init: 0.00
-    target_ratio: 0.2
-resistance:
-  SELL:
-    buff_min: 0.00
-    buff_max: 0.10
-    buff_init: 0.00
-    target_ratio: 0.5
-  HOLD:
-    buff_min: 0.00
-    buff_max: 1.00
-    buff_init: 0.00
-    target_ratio: 0.2
+entropys:
+  r_entropy:
+    floor: 1.5
+    ema_alpha: 0.7
+    kp: 0.05
+    kd: 0.01
+    bonus_step_max: 0.01
+    bonus_cap: 0.16
+  completions_entropy:
+    floor: 2.5
+    ema_alpha: 0.7
+    kp: 0.05
+    kd: 0.01
+    bonus_step_max: 0.01
+    bonus_cap: 0.13

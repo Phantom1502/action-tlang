@@ -41,6 +41,18 @@ class ActionNode:
     @property
     def is_hold(self) -> bool:
         return self.action_type == "HOLD"
+    
+    @property
+    def sl_value(self) -> Optional[int]:
+        if self.action_type == "HOLD":
+            return 0
+        return self.sl
+    
+    @property
+    def rr_value(self) -> Optional[int]:
+        if self.action_type == "HOLD":
+            return 0
+        return self.rr
 
 @dataclass
 class ProgramNode:

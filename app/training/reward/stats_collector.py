@@ -24,13 +24,8 @@ class TaskRolloutMeta:
     action_type: Optional[str]        # "BUY" / "SELL" / "HOLD" — None nếu chưa pass gate
     entry_quality: Optional[float]    # None nếu chưa pass gate
     outcome: Optional[float]          # None nếu chưa pass gate
-    buff_applied: Optional[float]     # None nếu chưa pass gate hoặc eval mode (buff_controller=None)
-    rr: Optional[int] = None          # CHỈ có ở BUY/SELL — None với HOLD hoặc chưa pass gate.
-                                        # Dùng để theo dõi phân phối RR theo từng nhánh (zone_type,
-                                        # action_type) — phát hiện sớm nếu model suy biến về đúng
-                                        # 1 giá trị RR duy nhất bất kể context (mất khả năng
-                                        # exploration), giống lý do RREntropyController tồn tại ở
-                                        # bản v1 cũ (task khác, nhưng cùng động cơ theo dõi).
+    sl: Optional[int] = None          # CHỈ có ở BUY/SELL — None nếu chưa pass gate, 0 neu HOLD
+    rr: Optional[int] = None          # CHỈ có ở BUY/SELL — None nếu chưa pass gate, 0 neu HOLD
 
 
 class StatsCollector:
