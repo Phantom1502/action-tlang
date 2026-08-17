@@ -8,7 +8,7 @@ zone_last_n_touch: 10
 sl_min_dist_bins: 50
 sl_max_dist_bins: 201
 trade_fee_bins: 10
-entry_score_weight: 0.1
+entry_score_weight: 0.2
 outcome_score_weight: 0.2
 digit_pad: 4
 rr_min: 1
