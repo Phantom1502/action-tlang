@@ -79,11 +79,12 @@ def parse(cfg: AppConfig, text: str) -> Optional[ProgramNode]:
 if __name__ == "__main__":
     cfg: AppConfig = load_config("configs")
     
+    ds_idx = 3
     # Lấy mẫu
     dataset = load_dataset("parquet", data_files={"train": "data/dataset/val_llm.parquet"})
-    prompt = dataset['train'][1]['prompt']
-    future_bins_text = dataset['train'][1]['future_bins']
-    zone_score = dataset['train'][1]['zone_score']
+    prompt = dataset['train'][ds_idx]['prompt']
+    future_bins_text = dataset['train'][ds_idx]['future_bins']
+    zone_score = dataset['train'][ds_idx]['zone_score']
     future_bins: List[CandleNode] = [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins_text]
     
     tlang: TLangReward = TLangReward(cfg)
