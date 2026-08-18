@@ -5,7 +5,7 @@ kd: 0.001
 step_max: 0.001
 entropys:
   r_entropy:
-    floor: 2.2
+    floor: 2.0
     ema_alpha: 0.7
     kp: 0.05
     kd: 0.01
