@@ -12,7 +12,7 @@ entropys:
     bonus_step_max: 0.01
     bonus_cap: 0.1
   completions_entropy:
-    floor: 2.5
+    floor: 2.2
     ema_alpha: 0.7
     kp: 0.05
     kd: 0.01
