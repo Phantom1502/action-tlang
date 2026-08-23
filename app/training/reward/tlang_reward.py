@@ -6,10 +6,11 @@ from collections import defaultdict, Counter
 from typing import Any, List, Optional, Sequence, Tuple, Dict
 import math
 
-from app.lang import (
+from tlang import (
     ProgramNode,
     ActionNode,
     CandleNode,
+    ZoneNode,
     SemanticChecker,
     Parser,
     ParseResult,
@@ -17,6 +18,8 @@ from app.lang import (
 )
 from app.training.reward.entropy_controller import EntropyController, MIN_SAMPLES_PER_GROUP_FOR_ENTROPY
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
+
+ZONE_PROBE_SL_BUFFER_BINS = 1
 
 @dataclass
 class CommonGateResult:
@@ -28,11 +31,42 @@ class CommonGateResult:
     semantic_result: Optional[SemanticResult]
     passed: bool                 # well_formed AND semantic_result.passed
     gate_score: float
+    
+    
+class OutcomeStatus(Enum):
+    WIN = "WIN"
+    LOSS = "LOSS"
+    TIMEOUT = "TIMEOUT"
+    INVALID_SETUP = "INVALID_SETUP"
+    ZONE_NOT_TOUCHED = "ZONE_NOT_TOUCHED"
+    
+@dataclass
+class ForwardTestResult:
+    status: OutcomeStatus
+    r_multiple: float
+    exit_index: Optional[int] = None
+    
+@dataclass
+class ZoneTaskScore:
+    zone_quality: float            # r_multiple đã nhân zone_score_weight, 0.0 nếu không có zone HOẶC không chạm
+    probe: Optional[ForwardTestResult]
+    has_zone: bool
+    is_touched: Optional[bool]     # None nếu không có zone (NO_ZONE) — KHÔNG dùng False cho case này
+
 
 @dataclass
 class ActionTaskScore:
     entry_quality: float
     outcome: float
+    
+def _find_first_touch(zone: ZoneNode, candles: List[CandleNode]) -> Optional[int]:
+    """Index nến ĐẦU TIÊN có [low,high] giao với [zone.lower_bin,
+    zone.upper_bin] — None nếu không nến nào chạm trong toàn bộ `candles`
+    (caller đã cắt đúng outcome_horizon trước khi truyền vào)."""
+    for i, c in enumerate(candles):
+        if c.low <= zone.upper_bin and c.high >= zone.lower_bin:
+            return i
+    return None
 
 def measure_max_favorable_r(
     entry_bin: int,
@@ -132,6 +166,44 @@ def partial_tp_forward_test(
 
     return realized_r - fee_in_r
 
+def probe_zone_quality(
+    zone: ZoneNode,
+    future_candles: List[CandleNode],
+    outcome_horizon: int,
+    cap: float,
+) -> ForwardTestResult:
+    """
+    Mô phỏng "vào lệnh NGAY KHI giá chạm mép zone (entry), cắt lỗ ngay khi
+    giá phá thủng mép đối diện + buffer" — support: entry=upper_bin,
+    sl=lower_bin-buffer, long. resistance: entry=lower_bin, sl=upper_bin+
+    buffer, short.
+
+    BẮT BUỘC điều kiện #1 (zone phải được giá tương lai CHẠM TỚI) trước khi
+    tính điều kiện #2 (không bị SL) — nếu không chạm, trả ZONE_NOT_TOUCHED
+    NGAY, KHÔNG giả định "vào lệnh từ nến đầu tiên của window" như bản cũ
+    (bản cũ để lọt qua case zone đặt xa giá hiện tại vẫn được điểm max nếu
+    trend tự nhiên đủ mạnh — không phản ánh đúng "model chọn zone khéo").
+    """
+    touch_idx = _find_first_touch(zone, future_candles[:outcome_horizon])
+    if touch_idx is None:
+        return ForwardTestResult(status=OutcomeStatus.ZONE_NOT_TOUCHED, r_multiple=0.0)
+
+    if zone.direction == "support":
+        entry, sl, direction = zone.upper_bin, zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, "long"
+    else:
+        entry, sl, direction = zone.lower_bin, zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, "short"
+
+    remaining_horizon = outcome_horizon - touch_idx
+    target = measure_max_favorable_r(
+        entry, 
+        sl, 
+        future_candles[touch_idx:], 
+        direction,
+        outcome_horizon=remaining_horizon, 
+        cap=cap,
+    )
+    return ForwardTestResult(status=OutcomeStatus.WIN, r_multiple=target)
+
 class TLangReward:
     def __init__(
         self, 
@@ -183,6 +255,43 @@ class TLangReward:
             semantic_result=semantic_result,
             passed=True,
             gate_score=semantic_result.score + parse_result.well_form_score(),
+        )
+        
+    def zone_score(
+        self,
+        zone: ZoneNode,
+        future_bins: List[CandleNode],
+    ) -> ZoneTaskScore:
+        """Đo chất lượng zone qua probe_zone_quality(). CHỈ gọi khi
+        common_check() đã pass (caller — compute_reward — chịu trách nhiệm
+        đảm bảo điều này, hàm này không tự check lại passed)."""
+        if zone is None:
+            return ZoneTaskScore(
+                zone_quality=self.cfg.base.no_zone_reward * self.cfg.base.zone_score_weight, 
+                probe=None, 
+                has_zone=False, 
+                is_touched=None
+            )
+
+        probe: ForwardTestResult = probe_zone_quality(
+            zone,
+            future_bins,
+            outcome_horizon=self.cfg.window.outcome_horizon,
+            cap=self.cfg.base.rr_max,
+        )
+
+        if probe.status == OutcomeStatus.ZONE_NOT_TOUCHED:
+            # KHÔNG cộng/trừ gì — chỉ ghi nhận trạng thái để quan sát qua
+            # StatsCollector (xem touch_rate_by_zone_type()). Nếu quan sát
+            # thấy tỉ lệ not-touched tăng bất thường qua các round, quay
+            # lại bàn thêm penalty RIÊNG BIỆT, KHÔNG lẫn vào zone_quality.
+            return ZoneTaskScore(zone_quality=0.0, probe=probe, has_zone=True, is_touched=False)
+        
+        return ZoneTaskScore(
+            zone_quality=probe.r_multiple * self.cfg.base.zone_score_weight, 
+            probe=probe, 
+            has_zone=True, 
+            is_touched=True
         )
         
     def action_score(

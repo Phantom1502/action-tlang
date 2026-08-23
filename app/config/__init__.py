@@ -3,6 +3,7 @@ from .schema import (
     AppConfig,
     BaseConfig,
     WindowConfig,
+    ScaleEntry,
     ModelPreset,
     ModelsConfig,
     TrainingConfig,
@@ -12,16 +13,19 @@ from .schema import (
 
 from .loader import (
     load_config,
+    get_scale
 )
 
 __all__ = [
     "AppConfig",
     "BaseConfig",
     "WindowConfig",
+    "ScaleEntry",
     "ModelPreset",
     "ModelsConfig",
     "TrainingConfig",
     "RoundConfig",
     "EntropyConfig",
     "load_config",
+    "get_scale",
 ]

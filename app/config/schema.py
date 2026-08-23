@@ -1,21 +1,13 @@
 from dataclasses import dataclass, field
 from typing import Dict, Tuple, List, Any
+from tlang import TLangConfig
 
 @dataclass(frozen=True)
 class BaseConfig:
-    bin_min: int
-    bin_max: int
-    n_bins: int
-    zone_width_min_bins: int
-    zone_width_max_bins: int
-    zone_extend_multiplier: float
-    zone_last_n_touch: int
-    sl_min_dist_bins: int
-    sl_max_dist_bins: int
     trade_fee_bins: int
+    zone_score_weight: float
     entry_score_weight: float
     outcome_score_weight: float
-    digit_pad: int
     rr_min: int
     rr_max: int
     
@@ -76,6 +68,16 @@ class TrainingConfig:
                 raise TypeError(f"[{self.phase}] {field} không thể convert sang int: {val!r}")
     
 @dataclass(frozen=True)
+class ScaleEntry:
+    symbol: str
+    timeframe: str
+    scale: float
+
+    def __post_init__(self) -> None:
+        if self.scale <= 0:
+            raise ValueError(f"ScaleEntry.scale phai > 0 (nhan duoc {self.scale})")
+        
+@dataclass(frozen=True)
 class EntropyConfig:
     """Cau hinh buff cho DUNG 1 action_type (khong gop nhom nhu v1)."""
     floor: float
@@ -98,6 +100,8 @@ class RoundConfig:
 class AppConfig:
     base: BaseConfig
     window: WindowConfig
+    scales: List[ScaleEntry]
     models: ModelsConfig
     training: Dict[str, TrainingConfig]
     rounds: Dict[str, RoundConfig]
+    tlang: TLangConfig

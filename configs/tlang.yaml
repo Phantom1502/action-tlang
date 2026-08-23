@@ -1,0 +1,7 @@
+expected_candle_count: 100
+n_bins: 2048
+digit_pad: 4
+zone_range: [50, 100]
+sl_range: [50, 201]
+zone_extend_multiplier: 1.0
+last_n_touch: 10

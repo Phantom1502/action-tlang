@@ -2,11 +2,12 @@ import os
 from typing import Any, Dict
 
 import yaml
-
+from tlang import TLangConfig
 from app.config.schema import (
     AppConfig,
     BaseConfig,
     WindowConfig,
+    ScaleEntry,
     ModelPreset,
     ModelsConfig,
     TrainingConfig,
@@ -18,8 +19,10 @@ from app.config.schema import (
 _REQUIRED_TOP_LEVEL_FILES = (
     "base.yaml",
     "window.yaml",
+    "scales.yaml",
     "models.yaml",
     "training_defaults.yaml",
+    "tlang.yaml",
 )
 _ROUNDS_SUBDIR = "rounds"
 
@@ -36,19 +39,10 @@ def _require_field(data: Dict[str, Any], key: str, source: str) -> Any:
 
 def _build_base_config(data: Dict[str, Any], source: str) -> BaseConfig:
     return BaseConfig(
-        bin_min=_require_field(data, "bin_min", source),
-        bin_max=_require_field(data, "bin_max", source),
-        n_bins=_require_field(data, "n_bins", source),
-        zone_width_min_bins=_require_field(data, "zone_width_min_bins", source),
-        zone_width_max_bins=_require_field(data, "zone_width_max_bins", source),
-        zone_extend_multiplier=_require_field(data, "zone_extend_multiplier", source),
-        zone_last_n_touch=_require_field(data, "zone_last_n_touch", source),
-        sl_min_dist_bins=_require_field(data, "sl_min_dist_bins", source),
-        sl_max_dist_bins=_require_field(data, "sl_max_dist_bins", source),
         trade_fee_bins=_require_field(data, "trade_fee_bins", source),
+        zone_score_weight=_require_field(data, "zone_score_weight", source),
         entry_score_weight=_require_field(data, "entry_score_weight", source),
         outcome_score_weight=_require_field(data, "outcome_score_weight", source),
-        digit_pad=_require_field(data, "digit_pad", source),
         rr_min=_require_field(data, "rr_min", source),
         rr_max=_require_field(data, "rr_max", source),
     )
@@ -59,6 +53,21 @@ def _build_window_config(data: Dict[str, Any], source: str) -> WindowConfig:
         outcome_horizon=_require_field(data, "outcome_horizon", source),
         window_size=_require_field(data, "window_size", source),
     )
+    
+def _build_scale_entries(data: Any, source: str) -> list:
+    if not isinstance(data, list):
+        raise ValueError(f"{source} phai la 1 danh sach cac scale entry")
+    entries = []
+    for i, item in enumerate(data):
+        item_source = f"{source}[{i}]"
+        entries.append(
+            ScaleEntry(
+                symbol=_require_field(item, "symbol", item_source),
+                timeframe=_require_field(item, "timeframe", item_source),
+                scale=_require_field(item, "scale", item_source),
+            )
+        )
+    return entries
     
 def _build_models_config(data: Dict[str, Any], source: str) -> ModelsConfig:
     presets_raw = data.get("presets", {}) or {}
@@ -118,6 +127,18 @@ def _build_round_config(data: Dict[str, Any], source: str) -> RoundConfig:
         entropys=entropys,
     )
     
+def _build_tlang_config(data: Dict[str, Any], source: str, mode: str = "zone") -> TLangConfig:
+    return TLangConfig(
+        expected_candle_count=_require_field(data, "expected_candle_count", source),
+        n_bins=_require_field(data, "n_bins", source),
+        digit_pad=_require_field(data, "digit_pad", source),
+        zone_range=tuple(_require_field(data, "zone_range", source)),
+        sl_range=tuple(_require_field(data, "sl_range", source)),
+        zone_extend_multiplier=_require_field(data, "zone_extend_multiplier", source),
+        last_n_touch=_require_field(data, "last_n_touch", source),
+        mode=mode,
+    )
+    
 def load_config(config_dir: str = "./config") -> AppConfig:
     """
     Pre-condition: config_dir ton tai, chua du file bat buoc (base.yaml, window.yaml,
@@ -151,13 +172,17 @@ def load_config(config_dir: str = "./config") -> AppConfig:
 
     base_data = _read_yaml(paths["base.yaml"])
     window_data = _read_yaml(paths["window.yaml"])
+    scales_data = _read_yaml(paths["scales.yaml"])
     training_data = _read_yaml(paths["training_defaults.yaml"])
     models_data = _read_yaml(paths["models.yaml"])
+    tlang_data = _read_yaml(paths["tlang.yaml"])
 
     base = _build_base_config(base_data, paths["base.yaml"])
     window = _build_window_config(window_data, paths["window.yaml"])
+    scales = _build_scale_entries(scales_data, paths["scales.yaml"])
     training = _build_training_config(training_data, paths["training_defaults.yaml"])
     models = _build_models_config(models_data, paths["models.yaml"])
+    tlang = _build_tlang_config(tlang_data, paths["tlang.yaml"], mode="full")
     
     rounds: Dict[str, RoundConfig] = {}
     for round_filename in round_files:
@@ -169,7 +194,25 @@ def load_config(config_dir: str = "./config") -> AppConfig:
     return AppConfig(
         base=base,
         window=window,
+        scales=scales,
         models=models,
         training=training,
-        rounds=rounds
+        rounds=rounds,
+        tlang=tlang
+    )
+    
+def get_scale(config: AppConfig, symbol: str, timeframe: str) -> float:
+    """
+    Pre-condition: config da load thanh cong.
+    Post-condition: tra ve dung scale factor khop CHINH XAC (symbol, timeframe, window_size).
+    Raises: KeyError neu khong co entry khop -- KHONG fallback am tham ve gia tri mac dinh.
+    """
+    for entry in config.scales:
+        if (
+            entry.symbol == symbol
+            and entry.timeframe == timeframe
+        ):
+            return entry.scale
+    raise KeyError(
+        f"Khong tim thay ScaleEntry khop (symbol={symbol!r}, timeframe={timeframe!r}"
     )

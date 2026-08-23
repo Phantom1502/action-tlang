@@ -11,3 +11,5 @@ data/filter/
 data/raw/
 app/training/reward/__pycache__/
 app/inference/__pycache__/
+data/slide_window/
+scripts/__pycache__/
