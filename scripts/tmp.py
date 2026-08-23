@@ -2,7 +2,7 @@ from app.config import load_config, AppConfig, get_scale
 import pandas as pd
 import numpy as np
 import random
-from typing import List, Optional, Tuple, Literal, Dict
+from typing import List, Tuple, Literal
 from app.training.reward import TLangReward, derive_target
 from tlang import (
     TLangConfig,
