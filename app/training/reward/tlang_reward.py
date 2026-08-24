@@ -14,7 +14,8 @@ from tlang import (
     SemanticChecker,
     Parser,
     ParseResult,
-    SemanticResult
+    SemanticResult,
+    ZoneDirection,
 )
 from app.training.reward.entropy_controller import EntropyController, MIN_SAMPLES_PER_GROUP_FOR_ENTROPY
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
@@ -188,7 +189,7 @@ def probe_zone_quality(
     if touch_idx is None:
         return ForwardTestResult(status=OutcomeStatus.ZONE_NOT_TOUCHED, r_multiple=0.0)
 
-    if zone.direction == "support":
+    if zone.direction == ZoneDirection.SUPPORT:
         entry, sl, direction = zone.upper_bin, zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, "long"
     else:
         entry, sl, direction = zone.lower_bin, zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, "short"
