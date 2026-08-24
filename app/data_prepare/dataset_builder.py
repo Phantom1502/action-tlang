@@ -239,6 +239,7 @@ def build_pretrain_dataset(
     }
     dataset = load_dataset("parquet", data_files=data_files)
     counter = Counter()
+    zone_counter = Counter()
     def preprocess_for_llm(batch):
         prompts = []
         completions = []
@@ -282,7 +283,7 @@ def build_pretrain_dataset(
                     score = reward.zone_score(zone, future_candles).zone_quality
                     if score > hold_threshhold:
                         zone_nodes.append((score, zone))
-                        
+                        zone_counter[zone_direction.value] += 1
                         # thêm noise để đa dạng zone
                         for _ in range(n_samples):
                             if zone_noise > 0:
@@ -323,7 +324,7 @@ def build_pretrain_dataset(
                     cfg.base.rr_max,
                     cfg.tlang.sl_range[1] - cfg.tlang.sl_range[0],
                 )
-                noise_think = ThinkNode(trend=trend, current_price_bin=chart.current_price, zone=noise_zone)
+                noise_think = ThinkNode(trend=trend, current_price_bin=chart.current_price, zone=zone)
                 noise_prompt, noise_completion = contruct_record(chart, noise_think, noise_action, cfg.tlang.digit_pad)
                 counter[f"{trend.value}_{zone.direction.value}_{noise_action.action_type.value}"] += 1
                 records.append((noise_prompt, noise_completion))
@@ -352,6 +353,7 @@ def build_pretrain_dataset(
                 completions.append(record[1])
                 symbols.append(symbol)
                 
+        print(f"Zone counter: total {zone_counter.total()} records, {zone_counter}")
         print(f"Counter: total {counter.total()} records, {counter}")
                 
         # Trả về các cột mới cho Dataset LLM
