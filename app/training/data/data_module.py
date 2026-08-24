@@ -115,7 +115,7 @@ def make_data_module(
     if data_args.dataset_mode == "local":
         print(f"[make_data_module:{stage}] dataset_mode=local, repo={data_args.dataset_name}")
         data_files = {
-            "train": f"{data_args.dataset_name}/{train_file}",
+            "train": f"{data_args.dataset_name}/train_pretrain.parquet",
             "val": f"{data_args.dataset_name}/window_200_val.parquet"
         }
         dataset = load_dataset("parquet", data_files=data_files)
