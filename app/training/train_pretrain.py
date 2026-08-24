@@ -86,11 +86,15 @@ def main(cfg: AppConfig) -> None:
     )
     data_module = make_data_module(tok, data_args, is_pretrain=True)
     
+    ignore_data_skip = False
+    if args.dataset_mode == "local":
+        ignore_data_skip = True
+    
     train_cfg = cfg.training['pretrain']
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         remove_unused_columns=False,
-        ignore_data_skip=True,
+        ignore_data_skip=ignore_data_skip,
         per_device_train_batch_size=train_cfg.batch_size,
         gradient_accumulation_steps=train_cfg.gradient_accumulation_steps,
         learning_rate=train_cfg.learning_rate,
