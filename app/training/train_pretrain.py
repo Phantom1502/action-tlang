@@ -18,7 +18,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     p.add_argument("--output_dir", required=True)
     
     p.add_argument("--dataset_name", required=True, help="sullivan1502/tlang-pretrain-ids for pretokenized")
-    p.add_argument("--dataset_mode", choices=["on_the_fly", "pre_tokenized"], default="pre_tokenized")
+    p.add_argument("--dataset_mode", choices=["on_the_fly", "pre_tokenized", "local"], default="local")
     p.add_argument("--cache_dir", default=None, help="local cache dir for huggingface datasets")
     p.add_argument("--max_length", type=int, default=512, help="khớp MAX_POSITION_EMBEDDINGS")
 

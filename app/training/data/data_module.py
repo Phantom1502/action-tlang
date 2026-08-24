@@ -112,6 +112,22 @@ def make_data_module(
 ) -> Dict[str, Any]:
     stage = "pretrain" if is_pretrain else "sft"
 
+    if data_args.dataset_mode == "local":
+        print(f"[make_data_module:{stage}] dataset_mode=local, repo={data_args.dataset_name}")
+        data_files = {
+            "train": f"{data_args.dataset_name}/{train_file}",
+            "val": f"{data_args.dataset_name}/window_200_val.parquet"
+        }
+        dataset = load_dataset("parquet", data_files=data_files)
+        train_dataset = dataset[data_args.train_split].shuffle(seed=random.randint(0, 1000))
+        return {
+            "train_dataset": train_dataset,
+            "eval_dataset": dataset[data_args.eval_split],
+            "data_collator": DataCollatorForCoT(
+                tokenizer=tokenizer, is_pretrain=is_pretrain, max_length=data_args.max_length,
+            ),
+        }
+
     if data_args.dataset_mode == "on_the_fly":
         print(f"[make_data_module:{stage}] dataset_mode=on_the_fly, repo={data_args.dataset_name}")
         dataset = load_dataset(data_args.dataset_name, cache_dir=data_args.cache_dir)

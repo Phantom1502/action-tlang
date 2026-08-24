@@ -259,8 +259,8 @@ def build_pretrain_dataset(
     from collections import Counter
     
     data_files = {
-        "train": f"{input_dir}/{train_file}",
-        "val": f"{input_dir}/window_200_val.parquet"
+        "train": f"{input_dir}/train_pretrain.parquet",
+        "val": f"{input_dir}/val_pretrain.parquet"
     }
     dataset = load_dataset("parquet", data_files=data_files)
     counter = Counter()
