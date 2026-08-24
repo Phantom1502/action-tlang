@@ -352,7 +352,7 @@ def build_pretrain_dataset(
                 completions.append(record[1])
                 symbols.append(symbol)
                 
-        print(f"Counter: {counter}")
+        print(f"Counter: total {counter.total()} records, {counter}")
                 
         # Trả về các cột mới cho Dataset LLM
         return {
