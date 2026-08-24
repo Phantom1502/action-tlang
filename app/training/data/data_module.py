@@ -9,7 +9,7 @@ from transformers import PreTrainedTokenizerBase
 
 from app.training.data.arguments import DataArguments
 from app.training.data.masking import LABEL_PAD_ID, compute_labels
-
+import random
 
 def _pad_encoded(
     batch_input_ids: List[List[int]],
@@ -115,7 +115,7 @@ def make_data_module(
     if data_args.dataset_mode == "on_the_fly":
         print(f"[make_data_module:{stage}] dataset_mode=on_the_fly, repo={data_args.dataset_name}")
         dataset = load_dataset(data_args.dataset_name, cache_dir=data_args.cache_dir)
-        train_dataset = dataset[data_args.train_split]
+        train_dataset = dataset[data_args.train_split].shuffle(seed=random.randint(0, 1000))
         return {
             "train_dataset": train_dataset,
             "eval_dataset": dataset[data_args.eval_split],
