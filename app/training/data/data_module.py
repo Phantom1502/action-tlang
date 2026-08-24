@@ -116,7 +116,7 @@ def make_data_module(
         print(f"[make_data_module:{stage}] dataset_mode=local, repo={data_args.dataset_name}")
         data_files = {
             "train": f"{data_args.dataset_name}/train_pretrain.parquet",
-            "val": f"{data_args.dataset_name}/window_200_val.parquet"
+            "val": f"{data_args.dataset_name}/val_pretrain.parquet"
         }
         dataset = load_dataset("parquet", data_files=data_files)
         train_dataset = dataset[data_args.train_split].shuffle(seed=random.randint(0, 1000))
