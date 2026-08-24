@@ -8,7 +8,6 @@ logging.basicConfig(level=logging.INFO, format="[%(name)s] %(message)s")
 
 from app.config import ( 
     AppConfig,
-    get_train_cfg,
     load_config
 )
 
@@ -87,7 +86,7 @@ def main(cfg: AppConfig) -> None:
     )
     data_module = make_data_module(tok, data_args, is_pretrain=True)
     
-    train_cfg = get_train_cfg(cfg, "pretrain")
+    train_cfg = cfg.training['pretrain']
     training_args = TrainingArguments(
         output_dir=args.output_dir,
         remove_unused_columns=False,
