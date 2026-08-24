@@ -278,7 +278,7 @@ def build_pretrain_dataset(
                 )
                 for future_idx, lower_bin, upper_bin, width in zones:
                     zone = ZoneNode(zone_direction, lower_bin, upper_bin)
-                    
+                    zone_counter[f"BEFORE_FILLTER_{zone_direction.value}"] += 1
                     # score tính trên zone tối ưu ko noise
                     score = reward.zone_score(zone, future_candles).zone_quality
                     if score > hold_threshhold:
@@ -346,6 +346,7 @@ def build_pretrain_dataset(
                         cfg.tlang.digit_pad
                     )
                 )
+                zone_counter["NO_ZONE"] += 1
                 counter[f"{TrendType.RANGE.value}_NO_ZONE_{ActionType.HOLD.value}"] += 1
                 
             for record in records:
