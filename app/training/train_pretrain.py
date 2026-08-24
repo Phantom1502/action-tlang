@@ -60,7 +60,7 @@ def main(cfg: AppConfig) -> None:
     # ------------------------------------------------------------
     # Tokenizer — luôn load qua Hub (app/tokenizer/hub.py), KHÔNG build lại
     # ------------------------------------------------------------
-    tok = load_tokenizer(repo_id=args.repo_id, allow_local_fallback=False)
+    tok = load_tokenizer(repo_id=args.repo_id)
     logger.info(f"tokenizer vocab_size = {tok.vocab_size}")
           
     # ------------------------------------------------------------
