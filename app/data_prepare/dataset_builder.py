@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 import random
-from typing import List, Tuple, Literal
+from typing import List, Tuple, Literal, Optional
 
 from app.config import load_config, AppConfig, get_scale
 from app.training.reward import TLangReward, derive_target
@@ -147,6 +147,19 @@ def find_best_rr(
                     continue
     return best_rr
 
+def _find_entry_touch(entry_price: int, type: ActionType, candles: List[CandleNode]) -> Optional[int]:
+    """Index nến ĐẦU TIÊN có [low,high] giao với [zone.lower_bin,
+    zone.upper_bin] — None nếu không nến nào chạm trong toàn bộ `candles`
+    (caller đã cắt đúng outcome_horizon trước khi truyền vào)."""
+    for i, c in enumerate(candles):
+        if type == ActionType.BUY:
+            if c.low <= entry_price:
+                return i
+        else:
+            if c.high >= entry_price:
+                return i
+    return None
+
 def gen_action(
     tlang_cfg: TLangConfig,
     zone: ZoneNode,
@@ -167,7 +180,10 @@ def gen_action(
                 return ActionNode(action_type, None, None)
             sl = max(sl - random.randint(0, noise), 0)
             # find best RR for buy action with entry = current_price
-            rr = find_best_rr(ActionType.BUY, current_price, sl, future_candles, rr_min, rr_max)
+            first_touch = _find_entry_touch(current_price, ActionType.BUY, future_candles)
+            if first_touch is None:
+                return ActionNode(action_type, None, None)
+            rr = find_best_rr(ActionType.BUY, current_price, sl, future_candles[first_touch:], rr_min, rr_max)
             action_type = ActionType.BUY
         elif current_price > zone.upper_bin: # giá trên zone, entry là upper bin
             sl_range = max(zone.upper_bin - zone.lower_bin + 1, tlang_cfg.sl_range[0])
@@ -176,7 +192,10 @@ def gen_action(
                 return ActionNode(action_type, None, None)
             sl = max(sl - random.randint(0, noise), 0)
             # find best RR for buy action with entry = upper bin
-            rr = find_best_rr(ActionType.BUY, zone.upper_bin, sl, future_candles, rr_min, rr_max)
+            first_touch = _find_entry_touch(zone.upper_bin, ActionType.BUY, future_candles)
+            if first_touch is None:
+                return ActionNode(action_type, None, None)
+            rr = find_best_rr(ActionType.BUY, zone.upper_bin, sl, future_candles[first_touch:], rr_min, rr_max)
             action_type = ActionType.BUY
         else: # giá dưới zone, zone không còn hợp lệ
             return ActionNode(action_type, None, None)
@@ -188,7 +207,10 @@ def gen_action(
                 return ActionNode(action_type, None, None)
             sl = min(sl + random.randint(0, noise), tlang_cfg.n_bins - 1)
             # find best RR for sell action with entry = current_price
-            rr = find_best_rr(ActionType.SELL, current_price, sl, future_candles, rr_min, rr_max)
+            first_touch = _find_entry_touch(current_price, ActionType.SELL, future_candles)
+            if first_touch is None:
+                return ActionNode(action_type, None, None)
+            rr = find_best_rr(ActionType.SELL, current_price, sl, future_candles[first_touch:], rr_min, rr_max)
             action_type = ActionType.SELL
         elif current_price < zone.lower_bin: # giá dưới zone, entry là lower bin
             sl_range = max(zone.upper_bin - zone.lower_bin + 1, tlang_cfg.sl_range[0])
@@ -197,7 +219,10 @@ def gen_action(
                 return ActionNode(action_type, None, None)
             sl = min(sl + random.randint(0, noise), tlang_cfg.n_bins - 1)
             # find best RR for sell action with entry = lower bin
-            rr = find_best_rr(ActionType.SELL, zone.lower_bin, sl, future_candles, rr_min, rr_max)
+            first_touch = _find_entry_touch(zone.lower_bin, ActionType.SELL, future_candles)
+            if first_touch is None:
+                return ActionNode(action_type, None, None)
+            rr = find_best_rr(ActionType.SELL, zone.lower_bin, sl, future_candles[first_touch:], rr_min, rr_max)
             action_type = ActionType.SELL
         else: # giá trên zone, zone không còn hợp lệ
             return ActionNode(action_type, None, None)

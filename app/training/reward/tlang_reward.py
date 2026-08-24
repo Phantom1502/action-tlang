@@ -189,7 +189,7 @@ def probe_zone_quality(
     if touch_idx is None:
         return ForwardTestResult(status=OutcomeStatus.ZONE_NOT_TOUCHED, r_multiple=0.0)
 
-    if zone.direction == ZoneDirection.SUPPORT:
+    if zone.direction == ZoneDirection.support:
         entry, sl, direction = zone.upper_bin, zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, "long"
     else:
         entry, sl, direction = zone.lower_bin, zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, "short"
