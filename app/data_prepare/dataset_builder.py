@@ -231,13 +231,14 @@ def build_pretrain_dataset(
 ):
     from datasets import load_dataset
     import os
+    from collections import Counter
     
     data_files = {
         "train": f"{input_dir}/{train_file}",
         "val": f"{input_dir}/window_200_val.parquet"
     }
     dataset = load_dataset("parquet", data_files=data_files)
-    
+    counter = Counter()
     def preprocess_for_llm(batch):
         prompts = []
         completions = []
@@ -279,7 +280,6 @@ def build_pretrain_dataset(
                     
                     # score tính trên zone tối ưu ko noise
                     score = reward.zone_score(zone, future_candles).zone_quality
-                    print(f"Zone: {zone.direction} {zone.lower_bin} {zone.upper_bin} {score}")
                     if score > hold_threshhold:
                         zone_nodes.append((score, zone))
                         
@@ -310,6 +310,7 @@ def build_pretrain_dataset(
                     trend = TrendType.DOWN
                 think = ThinkNode(trend=trend, current_price_bin=chart.current_price, zone=zone)
                 prompt, completion = contruct_record(chart, think, action, cfg.tlang.digit_pad)
+                counter[f"{trend.value}_{zone.direction.value}_{action.action_type.value}"] += 1
                 
                 records.append((prompt, completion))
                 
@@ -324,7 +325,7 @@ def build_pretrain_dataset(
                 )
                 noise_think = ThinkNode(trend=trend, current_price_bin=chart.current_price, zone=noise_zone)
                 noise_prompt, noise_completion = contruct_record(chart, noise_think, noise_action, cfg.tlang.digit_pad)
-                
+                counter[f"{trend.value}_{zone.direction.value}_{noise_action.action_type.value}"] += 1
                 records.append((noise_prompt, noise_completion))
                 
             if len(records) == 0:
@@ -344,11 +345,14 @@ def build_pretrain_dataset(
                         cfg.tlang.digit_pad
                     )
                 )
+                counter[f"{TrendType.RANGE.value}_NO_ZONE_{ActionType.HOLD.value}"] += 1
                 
             for record in records:
                 prompts.append(record[0])
                 completions.append(record[1])
                 symbols.append(symbol)
+                
+        print(f"Counter: {counter}")
                 
         # Trả về các cột mới cho Dataset LLM
         return {
