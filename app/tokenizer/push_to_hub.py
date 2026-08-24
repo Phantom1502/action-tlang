@@ -76,8 +76,8 @@ def main(cfg: AppConfig) -> None:
 
     tok = push_tokenizer(
         repo_id=args.repo_id,
-        bin_min=cfg.base.bin_min,
-        bin_max=cfg.base.bin_max,
+        bin_min=cfg.tlang.bin_range[0],
+        bin_max=cfg.tlang.bin_range[1],
         rr_min=cfg.base.rr_min,
         rr_max=cfg.base.rr_max,
         private=args.private,
