@@ -222,6 +222,7 @@ def build_pretrain_dataset(
     cfg: AppConfig,
     input_dir: str,
     output_dir: str,
+    train_file: str = "train.parquet",
     n_samples: int = 3,
     trend_threshhold: float = 0.6,
     hold_threshhold: float = 0.3,
@@ -232,7 +233,7 @@ def build_pretrain_dataset(
     import os
     
     data_files = {
-        "train": f"{input_dir}/window_200_train_*.parquet",
+        "train": f"{input_dir}/{train_file}",
         "val": f"{input_dir}/window_200_val.parquet"
     }
     dataset = load_dataset("parquet", data_files=data_files)
