@@ -83,12 +83,13 @@ class GRPOEval:
     def eval(
         self, 
         dataset: Any,
+        batch_size: int = 8
     ):
         reports = dataset.map(
             self.process_eval,
             batched=True,
-            batch_size=8,
-            num_proc=2,
+            batch_size=batch_size,
+            num_proc=os.cpu_count(),
             remove_columns=dataset.column_names
         )
         reward = np.mean(reports["reward"])
@@ -127,4 +128,4 @@ if __name__ == "__main__":
         model_revision="afa956a788e6b01e2404ba7fed38e9963a96fdca", #r450
         model_subset="last-checkpoint",
     )
-    grpo_eval.eval(val_ds)
+    grpo_eval.eval(val_ds, batch_size=8)
