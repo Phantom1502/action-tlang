@@ -76,7 +76,8 @@ class GRPOEval:
     def eval(
         self, 
         dataset: Any,
-        batch_size: int = 8
+        batch_size: int = 8,
+        log_path: str = "./out/grpo_eval.log",
     ):
         total_batches = (len(dataset) + batch_size - 1) // batch_size
         rewards = []
@@ -87,7 +88,7 @@ class GRPOEval:
         
         print(f"reward = {reward}")
         self.stats.print_summary()
-        self.stats.save_summary_log("./out/grpo_eval.log")
+        self.stats.save_summary_log(log_path)
 
 if __name__ == "__main__":
     from datasets import load_dataset

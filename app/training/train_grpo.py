@@ -263,7 +263,7 @@ def main(cfg: AppConfig):
     trainer.train(resume_from_checkpoint=resume_checkpoint)
     
     trainer.save_model()
-    canonical_tok = load_tokenizer(repo_id=args.repo_id, allow_local_fallback=False)
+    canonical_tok = load_tokenizer(repo_id=args.repo_id)
     canonical_tok.save_pretrained(args.output_dir)
     stats_collector.save(stats_path)
 
