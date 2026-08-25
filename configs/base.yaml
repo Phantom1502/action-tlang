@@ -1,6 +1,6 @@
 trade_fee_bins: 10
 zone_score_weight: 0.1
 entry_score_weight: 0.2
-outcome_score_weight: 0.2
+outcome_score_weight: 1.0
 rr_min: 1
 rr_max: 9

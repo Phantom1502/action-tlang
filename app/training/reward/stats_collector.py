@@ -7,7 +7,6 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Dict, List, Optional, Sequence, Tuple
 
-
 def stats_path_for_rank(output_dir: str, round_id: str, rank: int) -> str:
     """NGUỒN DUY NHẤT cho quy ước đặt tên file stats — dùng chung bởi cả
     save-side (StatsPersistCallback.on_save/on_train_end) LẪN load-side
@@ -20,13 +19,12 @@ def stats_path_for_rank(output_dir: str, round_id: str, rank: int) -> str:
 class TaskRolloutMeta:
     well_formed: bool
     semantic_passed: bool
+    trend_type: Optional[str]         # "UP" / "DOWN" / "RANGE" — None nếu chưa pass gate
     zone_type: Optional[str]          # "support" / "resistance" — None nếu chưa pass gate
     action_type: Optional[str]        # "BUY" / "SELL" / "HOLD" — None nếu chưa pass gate
-    entry_quality: Optional[float]    # None nếu chưa pass gate
     outcome: Optional[float]          # None nếu chưa pass gate
-    sl: Optional[int] = None          # CHỈ có ở BUY/SELL — None nếu chưa pass gate, 0 neu HOLD
+    outcome_status: Optional[str]     # "WIN" / "LOSS" / "WIN_1R" / "ENTRY_TIMEOUT" / "TIMEOUT" / "INVALID_SETUP"
     rr: Optional[int] = None          # CHỈ có ở BUY/SELL — None nếu chưa pass gate, 0 neu HOLD
-    entropy: Optional[float] = None
 
 
 class StatsCollector:
@@ -91,45 +89,46 @@ class StatsCollector:
         pass gate (well_formed + semantic_passed). Bao gồm avg_rr +
         rr_distribution CHO BUY/SELL (HOLD không có RR, list rỗng -> None).
         """
-        by_zone_total: Dict[str, int] = defaultdict(int)
-        raw: Dict[str, Dict[str, dict]] = defaultdict(
-            lambda: defaultdict(lambda: {
-                "count": 0, "entry_qualities": [], "outcomes": [], "rrs": [], "entropy": []
-            })
+        by_trend_total: Dict[str, int] = defaultdict(int)
+        by_zone_total: Dict[str, Dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        raw: Dict[str, Dict[str, Dict[str, dict]]] = defaultdict( # trend_type -> zone_type -> action_rr (BUY_1 : BUY WITH RR 1)
+            lambda: defaultdict(
+                lambda: defaultdict(
+                    lambda: {
+                        "count": 0, "outcomes": [], "status": [],
+                    }
+                )
+            )
         )
         for r in self._records:
-            if not (r.well_formed and r.semantic_passed) or r.zone_type is None:
+            if not (r.well_formed and r.semantic_passed) or r.trend_type is None:
                 continue
-            by_zone_total[r.zone_type] += 1
-            entry = raw[r.zone_type][r.action_type]
+            by_trend_total[r.trend_type] += 1
+            by_zone_total[r.trend_type][r.zone_type] += 1
+            entry = raw[r.trend_type][r.zone_type][f"{r.action_type}_{r.rr}"]
             entry["count"] += 1
-            if r.entry_quality is not None:
-                entry["entry_qualities"].append(r.entry_quality)
             if r.outcome is not None:
                 entry["outcomes"].append(r.outcome)
-            if r.rr is not None:
-                entry["rrs"].append(r.rr)
-            if r.entropy is not None:
-                entry["entropy"].append(r.entropy)
+            if r.outcome_status is not None:
+                entry["status"].append(r.outcome_status)
 
-        result: Dict[str, Dict[str, dict]] = {}
-        for zone_type, action_types in raw.items():
-            result[zone_type] = {}
-            total = by_zone_total[zone_type]
-            for action_type, entry in action_types.items():
-                eql = entry["entry_qualities"]
-                outcomes = entry["outcomes"]
-                rrs = entry["rrs"]
-                entropies = entry["entropy"]
-                result[zone_type][action_type] = {
-                    "count": entry["count"],
-                    "freq_within_zone": entry["count"] / total if total else 0.0,
-                    "avg_entry_quality": (sum(eql) / len(eql)) if eql else None,
-                    "avg_outcome": (sum(outcomes) / len(outcomes)) if outcomes else None,
-                    "avg_entropy": (sum(entropies) / len(entropies)) if entropies else None,
-                    "avg_rr": (sum(rrs) / len(rrs)) if rrs else None,
-                    "rr_distribution": dict(sorted(Counter(rrs).items())) if rrs else None,
-                }
+        result: Dict[str, Dict[str, Dict[str, dict]]] = {}
+        for trend_type, trend in raw.items():
+            result[trend_type] = {}
+            total = by_trend_total[trend_type]
+            for zone_type, zone in trend.items():
+                result[trend_type][zone_type] = {}
+                zone_total = by_zone_total[trend_type][zone_type]
+                for action_rr, entry in zone.items():
+                    action_type, rr = action_rr.split("_")
+                    outcomes = entry["outcomes"]
+                    outcome_status = entry["status"]
+                    result[trend_type][zone_type][f"{action_type}_RR{rr}"] = {
+                        "count": entry["count"],
+                        "freq_within_zone": entry["count"] / zone_total if zone_total else 0.0,
+                        "avg_outcome": (sum(outcomes) / len(outcomes)) if outcomes else 0.0,
+                        "outcome_status": dict(sorted(Counter(outcome_status).items())) if outcome_status else None,
+                    }
         return result
 
     def print_summary(self) -> None:
@@ -148,22 +147,62 @@ class StatsCollector:
         detail = self.summary()
         if not detail:
             print("  (chưa có record nào pass gate)")
-        for zone_type, action_types in detail.items():
-            print(f"zone_type={zone_type}")
-            for action_type, stat in action_types.items():
-                avg_eq = f"{stat['avg_entry_quality']:.3f}" if stat["avg_entry_quality"] is not None else "-"
-                avg_out = f"{stat['avg_outcome']:.3f}" if stat["avg_outcome"] is not None else "-"
-                avg_entropy = f"{stat['avg_entropy']:.3f}" if stat["avg_entropy"] is not None else "-"
-                avg_rr = f"{stat['avg_rr']:.2f}" if stat.get("avg_rr") is not None else "-"
-                line = (
-                    f"  {action_type:<10} count={stat['count']}({stat['freq_within_zone']*100:5.1f}%)  "
-                    f"ENTRY_QUALITY={avg_eq:>7} OUTCOME={avg_out:>7} avg_entropy={avg_entropy:>5} avg_RR={avg_rr:>5}"
-                )
-                dist = stat.get("rr_distribution")
-                if dist:
-                    dist_str = " ".join(f"{k}:{v}" for k, v in dist.items())
-                    line += f"  rr_dist=[{dist_str}]"
-                print(line)
+        for trend_type, trend in detail.items():
+            print(f"trend_type={trend_type}")
+            for zone_type, action_types in trend.items():
+                print(f"zone_type={zone_type}")
+                for action_type, stat in action_types.items():
+                    avg_out = f"{stat['avg_outcome']:.3f}" if stat["avg_outcome"] is not None else "-"
+                    line = (
+                        f"  {action_type:<10} count={stat['count']}({stat['freq_within_zone']*100:5.1f}%)  "
+                        f"OUTCOME={avg_out:>7}"
+                    )
+                    outcome_status = stat.get("outcome_status")
+                    if outcome_status:
+                        outcome_status_str = " ".join(f"{k}:{v}" for k, v in outcome_status.items())
+                        line += f"  outcome_status=[{outcome_status_str}]"
+                    print(line)
+
+    def save_summary_log(self, filepath: str = "summary.log") -> None:
+        """Lưu toàn bộ thông tin thống kê giống print_summary vào file log."""
+        n = len(self._records)
+        n_wf = sum(1 for r in self._records if r.well_formed)
+        n_sem = sum(1 for r in self._records if r.well_formed and r.semantic_passed)
+
+        lines = []
+        lines.append("=== StatsCollector summary (task2 — action) ===")
+        lines.append(f"n_records = {n}")
+        if n:
+            lines.append(f"well_form_rate = {n_wf / n * 100:.1f}%")
+        if n_wf:
+            lines.append(f"semantic_pass_rate (trong số well-formed) = {n_sem / n_wf * 100:.1f}%")
+
+        lines.append("\n-- Chi tiết theo zone -> action (đã pass gate) --")
+        detail = self.summary()
+        if not detail:
+            lines.append("  (chưa có record nào pass gate)")
+        
+        for trend_type, trend in detail.items():
+            lines.append(f"trend_type={trend_type}")
+            for zone_type, action_types in trend.items():
+                lines.append(f"zone_type={zone_type}")
+                for action_type, stat in action_types.items():
+                    avg_out = f"{stat['avg_outcome']:.3f}" if stat["avg_outcome"] is not None else "-"
+                    line = (
+                        f"  {action_type:<10} count={stat['count']}({stat['freq_within_zone']*100:5.1f}%)  "
+                        f"OUTCOME={avg_out:>7}"
+                    )
+                    outcome_status = stat.get("outcome_status")
+                    if outcome_status:
+                        outcome_status_str = " ".join(f"{k}:{v}" for k, v in outcome_status.items())
+                        line += f"  outcome_status=[{outcome_status_str}]"
+                    lines.append(line)
+
+        # Ghi danh sách chuỗi vào file
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write("\n".join(lines) + "\n")
+        
+        print(f"-> Đã lưu log tóm tắt vào: {filepath}")
 
     def to_list(self) -> List[dict]:
         return [asdict(r) for r in self._records]
@@ -198,3 +237,48 @@ class StatsCollector:
                 d.setdefault("entropy", None)
                 collector.log(TaskRolloutMeta(**d))
         return collector
+    
+if __name__ == "__main__":
+    from tlang import ActionType, ZoneDirection, TrendType
+    collector = StatsCollector()
+    collector.log(TaskRolloutMeta(
+        well_formed=True,
+        semantic_passed=True,
+        trend_type=TrendType.UP.value,
+        zone_type=ZoneDirection.support.value,
+        action_type=ActionType.BUY.value,
+        outcome=1.0,
+        outcome_status="WIN_1R",
+        rr=1,
+    ))
+    collector.log(TaskRolloutMeta(
+        well_formed=True,
+        semantic_passed=True,
+        trend_type=TrendType.UP,
+        zone_type=ZoneDirection.support,
+        action_type=ActionType.BUY,
+        outcome=0.0,
+        outcome_status="LOSE",
+        rr=1,
+    ))
+    collector.log(TaskRolloutMeta(
+        well_formed=True,
+        semantic_passed=True,
+        trend_type=TrendType.RANGE,
+        zone_type=ZoneDirection.support,
+        action_type=ActionType.BUY,
+        outcome=0.0,
+        outcome_status="LOSE",
+        rr=1,
+    ))
+    collector.log(TaskRolloutMeta(
+        well_formed=True,
+        semantic_passed=True,
+        trend_type=TrendType.RANGE,
+        zone_type=ZoneDirection.resistance,
+        action_type=ActionType.SELL,
+        outcome=0.0,
+        outcome_status="LOSE",
+        rr=1,
+    ))
+    collector.print_summary()

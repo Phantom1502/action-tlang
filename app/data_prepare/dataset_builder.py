@@ -5,7 +5,7 @@ import random
 from typing import List, Tuple, Literal, Optional
 
 from app.config import load_config, AppConfig, get_scale
-from app.training.reward import TLangReward, derive_target
+from app.training.reward import derive_target
 from tlang import (
     TLangConfig,
     ChartCodec,
@@ -22,6 +22,44 @@ from tlang import (
     plot_zones,
     plot_program
 )
+
+ZONE_PROBE_SL_BUFFER_BINS = 1
+
+def zone_score(
+    zone: ZoneNode,
+    future_candles: List[CandleNode],
+    rr_min: int, 
+    rr_max: int,
+) -> float:
+    touch_idx = None
+    if zone.direction == ZoneDirection.support:
+        touch_idx = _find_entry_touch(zone.upper_bin, ActionType.BUY, future_candles)
+    else:
+        touch_idx = _find_entry_touch(zone.lower_bin, ActionType.SELL, future_candles)
+        
+    if touch_idx is None:
+        return 0.0
+
+    rr = 0
+    if zone.direction == ZoneDirection.support:
+        rr = find_best_rr(
+            ActionType.BUY, 
+            zone.upper_bin, 
+            zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, 
+            future_candles[touch_idx:], 
+            rr_min, 
+            rr_max
+        )
+    else:
+        rr = find_best_rr(
+            ActionType.SELL, 
+            zone.lower_bin, 
+            zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, 
+            future_candles[touch_idx:], 
+            rr_min, 
+            rr_max
+        )
+    return rr
 
 def find_truly_valid_zones(
     input_candles: List[CandleNode],
@@ -286,8 +324,6 @@ def build_pretrain_dataset(
             input_candles, anchor_open = codec._encode_input(input_window, atr_100)
             future_candles = codec._encode_future(future_window, anchor_open, atr_100)
             chart: ChartNode = ChartNode(candles=input_candles)
-                        
-            reward = TLangReward(cfg)
             
             zone_noise = (cfg.tlang.zone_range[1] - cfg.tlang.zone_range[0]) // 2
             zone_nodes = []
@@ -305,7 +341,7 @@ def build_pretrain_dataset(
                     zone = ZoneNode(zone_direction, lower_bin, upper_bin)
                     zone_counter[f"BEFORE_FILLTER_{zone_direction.value}"] += 1
                     # score tính trên zone tối ưu ko noise
-                    score = reward.zone_score(zone, future_candles).zone_quality
+                    score = zone_score(zone, future_candles, cfg.base.rr_min, cfg.base.rr_max) * cfg.base.zone_score_weight
                     if score > hold_threshhold:
                         zone_nodes.append((score, zone))
                         zone_counter[zone_direction.value] += 1

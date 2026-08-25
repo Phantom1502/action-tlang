@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import Enum
-from collections import defaultdict, Counter
 from typing import Any, List, Optional, Sequence, Tuple, Dict
-import math
+from enum import Enum
 
 from tlang import (
     ProgramNode,
@@ -16,11 +14,9 @@ from tlang import (
     ParseResult,
     SemanticResult,
     ZoneDirection,
+    ActionType,
 )
-from app.training.reward.entropy_controller import EntropyController, MIN_SAMPLES_PER_GROUP_FOR_ENTROPY
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
-
-ZONE_PROBE_SL_BUFFER_BINS = 1
 
 @dataclass
 class CommonGateResult:
@@ -33,78 +29,37 @@ class CommonGateResult:
     passed: bool                 # well_formed AND semantic_result.passed
     gate_score: float
     
-    
 class OutcomeStatus(Enum):
     WIN = "WIN"
     LOSS = "LOSS"
+    ENTRY_TIMEOUT = "ENTRY_TIMEOUT"     # Lệnh limit không bao giờ chạm tới
+    HOLD = "HOLD"
     TIMEOUT = "TIMEOUT"
-    INVALID_SETUP = "INVALID_SETUP"
-    ZONE_NOT_TOUCHED = "ZONE_NOT_TOUCHED"
-    
+    INVALID_SETUP = "INVALID_SETUP"   # SL sai khoảng cách/phía zone, hoặc target bị bão hoà bin
+
 @dataclass
 class ForwardTestResult:
     status: OutcomeStatus
-    r_multiple: float
-    exit_index: Optional[int] = None
-    
-@dataclass
-class ZoneTaskScore:
-    zone_quality: float            # r_multiple đã nhân zone_score_weight, 0.0 nếu không có zone HOẶC không chạm
-    probe: Optional[ForwardTestResult]
-    has_zone: bool
-    is_touched: Optional[bool]     # None nếu không có zone (NO_ZONE) — KHÔNG dùng False cho case này
+    r_multiple: float                   # có thể dùng để thống kê
+    score: float                        # reward cho model học
 
-
-@dataclass
-class ActionTaskScore:
-    entry_quality: float
-    outcome: float
-    
-def _find_first_touch(zone: ZoneNode, candles: List[CandleNode]) -> Optional[int]:
+def _find_entry_touch(entry_price: int, type: ActionType, candles: List[CandleNode]) -> Optional[int]:
     """Index nến ĐẦU TIÊN có [low,high] giao với [zone.lower_bin,
     zone.upper_bin] — None nếu không nến nào chạm trong toàn bộ `candles`
     (caller đã cắt đúng outcome_horizon trước khi truyền vào)."""
     for i, c in enumerate(candles):
-        if c.low <= zone.upper_bin and c.high >= zone.lower_bin:
-            return i
-    return None
-
-def measure_max_favorable_r(
-    entry_bin: int,
-    sl_bin: int,
-    future_candles: List[CandleNode],
-    direction: str,
-    outcome_horizon: int,
-    cap: float,
-) -> float:
-    """
-    Đo R thuận lợi lớn nhất đã đạt được trước khi chạm sl_bin/hết
-    outcome_horizon/chạm trần cap — hàm THUẦN TÚY, không phụ thuộc
-    self.cfg (test/gọi độc lập dễ dàng).
-    """
-    risk = abs(entry_bin - sl_bin)
-    if risk == 0:
-        return 0.0
-
-    max_r = 0.0
-    for candle in future_candles[:outcome_horizon]:
-        if direction == "long":
-            if candle.low <= sl_bin:
-                break
-            max_r = max(max_r, (candle.high - entry_bin) / risk)
+        if type == ActionType.BUY:
+            if c.low <= entry_price:
+                return i
         else:
-            if candle.high >= sl_bin:
-                break
-            max_r = max(max_r, (entry_bin - candle.low) / risk)
-        if max_r >= cap:
-            max_r = cap
-            break
-    return max_r
+            if c.high >= entry_price:
+                return i
+    return None
 
 def derive_target(
     entry_bin: int, 
     sl_bin: int, 
-    rr: float, 
+    rr: int, 
     direction: str,
 ) -> Optional[int]:
     if direction == "long":
@@ -113,110 +68,84 @@ def derive_target(
         target = entry_bin - rr * (sl_bin - entry_bin)
     return round(target)
 
-def partial_tp_forward_test(
+def forward_test(
     entry_bin: int,
     sl_bin: int,
-    rr: int,
-    trade_fee_bins: int,
+    target_bin: int,
     future_candles: List[CandleNode],
-    direction: str,
-    outcome_horizon: int
-) -> float:
+    action_type: ActionType,
+) -> ForwardTestResult:
     risk = abs(entry_bin - sl_bin)
     if risk == 0:
-        return 0.0
-    
-    fee_in_r = trade_fee_bins / risk
-    
-    level_targets: List[int] = []
-    for k in range(1, rr + 1):
-        t = derive_target(entry_bin, sl_bin, k, direction)
-        level_targets.append(t)
-    
-    part_size = 1.0 / rr
-    realized_r = 0.0
-    remaining = 1.0
-    next_level_idx = 0   # index vào level_targets, 0-based (mức k = next_level_idx+1)
-    
-    for i, candle in enumerate(future_candles[:outcome_horizon]):
-        if direction == "long":
+        return ForwardTestResult(OutcomeStatus.INVALID_SETUP, 0.0, 0.0)
+
+    for i, candle in enumerate(future_candles):
+        if action_type == ActionType.BUY:
             hit_sl = candle.low <= sl_bin
-        else:
+            hit_tp = candle.high >= target_bin
+        else:  # short
             hit_sl = candle.high >= sl_bin
-        
+            hit_tp = candle.low <= target_bin
+
         if hit_sl:
-            realized_r += remaining * (-1.0)
-            return realized_r - fee_in_r
-        
-        while next_level_idx < rr:
-            level = next_level_idx + 1
-            target = level_targets[next_level_idx]
-            hit_tp_level = (candle.high >= target) if direction == "long" else (candle.low <= target)
-            if not hit_tp_level:
-                break
-            realized_r += part_size * level
-            remaining -= part_size
-            next_level_idx += 1
-        
-        if remaining <= 1e-9:
-            return realized_r - fee_in_r
-        
-    last_close = future_candles[min(outcome_horizon, len(future_candles)) - 1].close if future_candles else entry_bin
-    mtm_r = (last_close - entry_bin) / risk if direction == "long" else (entry_bin - last_close) / risk
-    realized_r += remaining * mtm_r
+            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0)
+        if hit_tp:
+            r_multiple = int(abs(target_bin - entry_bin) / risk)
+            if r_multiple == 1: # r_multiple = 1
+                return ForwardTestResult(OutcomeStatus.WIN, r_multiple, 0.5)
+            else: # r_multiple > 1
+                return ForwardTestResult(OutcomeStatus.WIN, r_multiple, 1.5)
+            
+    return ForwardTestResult(OutcomeStatus.TIMEOUT, 0.0, 0.0)
 
-    return realized_r - fee_in_r
-
-def probe_zone_quality(
+def eval_outcome(
+    current_price: int,
     zone: ZoneNode,
+    sl: int,
+    rr: int,
     future_candles: List[CandleNode],
-    outcome_horizon: int,
-    cap: float,
+    action_type: ActionType,
 ) -> ForwardTestResult:
-    """
-    Mô phỏng "vào lệnh NGAY KHI giá chạm mép zone (entry), cắt lỗ ngay khi
-    giá phá thủng mép đối diện + buffer" — support: entry=upper_bin,
-    sl=lower_bin-buffer, long. resistance: entry=lower_bin, sl=upper_bin+
-    buffer, short.
-
-    BẮT BUỘC điều kiện #1 (zone phải được giá tương lai CHẠM TỚI) trước khi
-    tính điều kiện #2 (không bị SL) — nếu không chạm, trả ZONE_NOT_TOUCHED
-    NGAY, KHÔNG giả định "vào lệnh từ nến đầu tiên của window" như bản cũ
-    (bản cũ để lọt qua case zone đặt xa giá hiện tại vẫn được điểm max nếu
-    trend tự nhiên đủ mạnh — không phản ánh đúng "model chọn zone khéo").
-    """
-    touch_idx = _find_first_touch(zone, future_candles[:outcome_horizon])
-    if touch_idx is None:
-        return ForwardTestResult(status=OutcomeStatus.ZONE_NOT_TOUCHED, r_multiple=0.0)
-
+    entry = None
     if zone.direction == ZoneDirection.support:
-        entry, sl, direction = zone.upper_bin, zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, "long"
+        if zone.lower_bin > current_price:
+            return ForwardTestResult(OutcomeStatus.INVALID_SETUP, 0.0, 0.0)
+        if zone.lower_bin <= current_price <= zone.upper_bin:
+            entry = current_price # nếu giá trong zone, vào lệnh ngay tại giá hiện tại
+        else:
+            entry = zone.upper_bin # nếu giá trên sup zone, đặt limit tại zone upper bin
     else:
-        entry, sl, direction = zone.lower_bin, zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, "short"
+        if zone.upper_bin < current_price:
+            return ForwardTestResult(OutcomeStatus.INVALID_SETUP, 0.0, 0.0)
+        if zone.lower_bin <= current_price <= zone.upper_bin:
+            entry = current_price # nếu giá trong zone, vào lệnh ngay tại giá hiện tại
+        else:
+            entry = zone.lower_bin # nếu giá dưới res zone, đặt limit tại zone lower bin
+            
+    if entry is None:
+        return ForwardTestResult(OutcomeStatus.INVALID_SETUP, 0.0, 0.0)
+    
+    touch_idx = None
+    if zone.direction == ZoneDirection.support:
+        touch_idx = _find_entry_touch(entry, ActionType.BUY, future_candles)
+    else:
+        touch_idx = _find_entry_touch(entry, ActionType.SELL, future_candles)
+        
+    if touch_idx is None:
+        return ForwardTestResult(OutcomeStatus.ENTRY_TIMEOUT, 0.0, 1.0)
 
-    remaining_horizon = outcome_horizon - touch_idx
-    target = measure_max_favorable_r(
-        entry, 
-        sl, 
-        future_candles[touch_idx:], 
-        direction,
-        outcome_horizon=remaining_horizon, 
-        cap=cap,
-    )
-    return ForwardTestResult(status=OutcomeStatus.WIN, r_multiple=target)
+    target_bin = derive_target(entry, sl, rr, zone.direction)
+
+    return forward_test(entry, sl, target_bin, future_candles[touch_idx:], action_type)
 
 class TLangReward:
     def __init__(
         self, 
         cfg: AppConfig,
-        entropy_controller: Optional[EntropyController] = None,
-        entropy_r_controller: Optional[EntropyController] = None,
         stats_collector: Optional[StatsCollector] = None
     ):
         self.__name__ = "TLangReward"
         self.cfg = cfg
-        self.entropy_controller = entropy_controller
-        self.entropy_r_controller = entropy_r_controller
         self.stats_collector = stats_collector
         
     def common_check(
@@ -233,14 +162,7 @@ class TLangReward:
                 gate_score=parse_result.well_form_score(),
             )
             
-        semantic_result: SemanticResult = SemanticChecker(
-            zone_width_min_bins=self.cfg.base.zone_width_min_bins,
-            zone_width_max_bins=self.cfg.base.zone_width_max_bins,
-            sl_min_dist_bins=self.cfg.base.sl_min_dist_bins,
-            sl_max_dist_bins=self.cfg.base.sl_max_dist_bins,
-            zone_extend_multiplier=self.cfg.base.zone_extend_multiplier,
-            last_n_touch=self.cfg.base.zone_last_n_touch
-        ).check(program)
+        semantic_result: SemanticResult = SemanticChecker(self.cfg.tlang).check(program)
         if not semantic_result.passed:
             return CommonGateResult(
                 program=program,
@@ -258,88 +180,45 @@ class TLangReward:
             gate_score=semantic_result.score + parse_result.well_form_score(),
         )
         
-    def zone_score(
-        self,
-        zone: ZoneNode,
-        future_bins: List[CandleNode],
-    ) -> ZoneTaskScore:
-        """Đo chất lượng zone qua probe_zone_quality(). CHỈ gọi khi
-        common_check() đã pass (caller — compute_reward — chịu trách nhiệm
-        đảm bảo điều này, hàm này không tự check lại passed)."""
-        if zone is None:
-            return ZoneTaskScore(
-                zone_quality=self.cfg.base.no_zone_reward * self.cfg.base.zone_score_weight, 
-                probe=None, 
-                has_zone=False, 
-                is_touched=None
-            )
-
-        probe: ForwardTestResult = probe_zone_quality(
-            zone,
-            future_bins,
-            outcome_horizon=self.cfg.window.outcome_horizon,
-            cap=self.cfg.base.rr_max,
-        )
-
-        if probe.status == OutcomeStatus.ZONE_NOT_TOUCHED:
-            # KHÔNG cộng/trừ gì — chỉ ghi nhận trạng thái để quan sát qua
-            # StatsCollector (xem touch_rate_by_zone_type()). Nếu quan sát
-            # thấy tỉ lệ not-touched tăng bất thường qua các round, quay
-            # lại bàn thêm penalty RIÊNG BIỆT, KHÔNG lẫn vào zone_quality.
-            return ZoneTaskScore(zone_quality=0.0, probe=probe, has_zone=True, is_touched=False)
-        
-        return ZoneTaskScore(
-            zone_quality=probe.r_multiple * self.cfg.base.zone_score_weight, 
-            probe=probe, 
-            has_zone=True, 
-            is_touched=True
-        )
-        
     def action_score(
         self,
         program: ProgramNode,
         future_bins: List[CandleNode],
-    ) -> ActionTaskScore:
+    ) -> ForwardTestResult:
+        '''
+        Phần thưởng sẽ có 4 mốc:
+        - 0.0: lệnh lỗi, bị dính sl, timeout
+        - 0.5: rr = 1
+        - 1.0: HOLD, entry timeout (ko vào đc lệnh thì ko lỗ, tương đương HOLD)
+        - 1.5: lệnh thắng với RR >= 2
+        '''
+        
         action: ActionNode = program.action
-        if action.is_hold:
-            return ActionTaskScore(
-                entry_quality=0.0,
-                outcome=1.5 * self.cfg.base.outcome_score_weight,
+        if action.action_type == ActionType.HOLD:
+            return ForwardTestResult(
+                OutcomeStatus.HOLD,
+                0.0,
+                1.0 # 
             )
         
-        entry_quality = measure_max_favorable_r(
-            program.chart.current_price,
-            action.sl,
-            future_bins,
-            direction = "long" if action.action_type == "BUY" else "short",
-            outcome_horizon = self.cfg.window.outcome_horizon,
-            cap = self.cfg.base.rr_max
-        )
-        
-        outcome = partial_tp_forward_test(
-            program.chart.current_price,
-            action.sl,
-            action.rr,
-            self.cfg.base.trade_fee_bins,
-            future_bins,
-            direction = "long" if action.action_type == "BUY" else "short",
-            outcome_horizon=self.cfg.window.outcome_horizon
-        )
-        
-        return ActionTaskScore(
-            entry_quality=entry_quality * self.cfg.base.entry_score_weight,
-            outcome=outcome * self.cfg.base.outcome_score_weight
+        return eval_outcome(
+            current_price=program.chart.current_price,
+            zone=program.think.zone,
+            sl=action.sl,
+            rr=action.rr,
+            future_candles=future_bins,
+            action_type=action.action_type
         )
         
     def compute_reward(
         self,
         prompt: str,
         completion: str,
-        future_candles: Tuple[List[CandleNode], TaskRolloutMeta],
-    ) -> float:
+        future_candles: List[CandleNode],
+    ) -> Tuple[float, TaskRolloutMeta]:
         reward = 0.0
 
-        parse_result: ParseResult = Parser.from_text(self.cfg, prompt + " " + completion).parse()
+        parse_result: ParseResult = Parser.from_text(self.cfg.tlang, prompt + " " + completion).parse()
         program = parse_result.ast
         common_result: CommonGateResult = self.common_check(parse_result, program)
         reward += common_result.gate_score
@@ -348,30 +227,27 @@ class TLangReward:
             meta = TaskRolloutMeta(
                 well_formed=parse_result.is_well_formed(),
                 semantic_passed=False,
+                trend_type=None,
                 zone_type=None,
                 action_type=None,
-                entry_quality=None,
                 outcome=None,
-                sl=None,
+                outcome_status=None,
                 rr=None
             )
             return reward, meta
         
-        # buff để tránh overlap vì outcome có giá trị âm là -1R * self.cfg.base.outcome_score_weight
-        reward += self.cfg.base.outcome_score_weight
-        
-        score: ActionTaskScore = self.action_score(program, future_candles)
-        reward += score.entry_quality + score.outcome
+        score: ForwardTestResult = self.action_score(program, future_candles)
+        reward += score.score
         
         meta = TaskRolloutMeta(
             well_formed=True,
             semantic_passed=True,
-            zone_type=program.think.zone.direction,
-            action_type=program.action.action_type,
-            entry_quality=score.entry_quality,
-            outcome=score.outcome,
-            sl=program.action.sl_value,
-            rr=program.action.rr_value
+            trend_type=program.think.trend.value,
+            zone_type=program.think.zone_type.value,
+            action_type=program.action.action_type.value,
+            outcome=score.r_multiple,
+            outcome_status=score.status.value,
+            rr=program.action.rr
         )
         return reward, meta
     
@@ -382,96 +258,30 @@ class TLangReward:
         future_bins: Sequence[Sequence[Sequence[int]]],
         **kwargs,
     ) -> List[float]:
-        """Entry point cho GRPOTrainer(reward_funcs=...)."""
-        n = len(prompts)
-
-        rewards: List[float] = [0.0] * n
-        metas: List[Optional[TaskRolloutMeta]] = [None] * n
-        
-        for i in range(n):
-            future_bin_nodes = [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins[i]]
-            reward, meta = self.compute_reward(
-                prompts[i], 
-                completions[i], 
-                future_bin_nodes
-            )
-            rewards[i] = reward
-            metas[i] = meta
-            
-        groups_idx: Dict[Any, List[int]] = defaultdict(list)
-        for i, prompt in enumerate(prompts):
-            if metas[i].well_formed and metas[i].semantic_passed:
-                metas[i].entropy = 0
-                groups_idx[prompt].append(i)
-
-        # RR Entropy
-        strength = self.entropy_r_controller.get_bonus()
-        for idx_list in groups_idx.values():
-            if len(idx_list) < MIN_SAMPLES_PER_GROUP_FOR_ENTROPY:
-                continue
-
-            branch_list = [f"{metas[i].action_type}|{metas[i].rr}" for i in idx_list]
-            h, probs = _entropy_and_probs_str(branch_list)
-            self.entropy_r_controller.record_entropy(h)
-
-            if strength <= 0.0:
-                continue
-
-            for i in idx_list:
-                branch_key = f"{metas[i].action_type}|{metas[i].rr}"
-                surprisal = -math.log(probs[branch_key])
-                max_suprisal = -math.log(1.0 / n)  # surprisal trần khi p=1/16 (hiếm nhất có thể trong group 16)
-                normalized_surprisal = surprisal / max_suprisal
-                rewards[i] += strength * normalized_surprisal
-                metas[i].entropy += strength * normalized_surprisal
+        rewards: List[float] = []
+        for prompt, completion, future_bin in zip(prompts, completions, future_bins):
+            future_candles = [CandleNode(o[0], o[1], o[2], o[3]) for o in future_bin]
+            reward, meta = self.compute_reward(prompt, completion, future_candles)
+            rewards.append(reward)
                 
-        completion_strength = self.entropy_controller.get_bonus()
-        for idx_list in groups_idx.values():
-            if len(idx_list) < MIN_SAMPLES_PER_GROUP_FOR_ENTROPY:
-                continue
-
-            branch_list = [f"{metas[i].action_type}|{metas[i].sl}" for i in idx_list]
-            h, probs = _entropy_and_probs_str(branch_list)
-            self.entropy_controller.record_entropy(h)
-
-            if completion_strength <= 0.0:
-                continue
-
-            for i in idx_list:
-                branch_key = f"{metas[i].action_type}|{metas[i].sl}"
-                surprisal = -math.log(probs[branch_key])
-                max_suprisal = -math.log(1.0 / n)
-                normalized_surprisal = surprisal / max_suprisal
-                rewards[i] += completion_strength * normalized_surprisal
-                metas[i].entropy += completion_strength * normalized_surprisal
-                
-        if self.stats_collector is not None:
-            for meta in metas:
+            if self.stats_collector is not None:
                 self.stats_collector.log(meta)      
+                
         return rewards
-    
-def _entropy_and_probs_str(values: Sequence[str]) -> Tuple[float, Dict[str, float]]:
-    n = len(values)
-    counts = Counter(values)
-    probs = {v: c / n for v, c in counts.items()}
-    h = -sum(p * math.log(p) for p in probs.values())
-    return h, probs
     
 if __name__ == "__main__":
     from app.config import load_config, AppConfig
-    from app.lang import (
+    from tlang import (
         Parser,
         ProgramNode
     )
     
     cfg: AppConfig = load_config("configs")
     
-    print("ENTROPY CONFIG")
-    print(cfg.rounds['round1'].entropys['completions_entropy'])
-    print(cfg.rounds['round1'].entropys['r_entropy'])
+    stat: StatsCollector = StatsCollector()
     
-    prompt = "<chart> <O_1024> <H_1059> <L_999> <C_1033> <O_1029> <H_1033> <L_1004> <C_1004> <O_1004> <H_1016> <L_978> <C_992> <O_992> <H_1023> <L_973> <C_1021> <O_1021> <H_1030> <L_984> <C_988> <O_988> <H_992> <L_955> <C_962> <O_962> <H_967> <L_915> <C_938> <O_938> <H_947> <L_926> <C_942> <O_941> <H_976> <L_933> <C_976> <O_975> <H_983> <L_947> <C_951> <O_951> <H_984> <L_950> <C_979> <O_981> <H_998> <L_960> <C_991> <O_990> <H_1003> <L_975> <C_982> <O_982> <H_994> <L_960> <C_992> <O_992> <H_1011> <L_988> <C_1000> <O_1000> <H_1004> <L_963> <C_965> <O_964> <H_978> <L_932> <C_934> <O_935> <H_958> <L_933> <C_944> <O_943> <H_949> <L_910> <C_912> <O_912> <H_944> <L_899> <C_932> <O_932> <H_963> <L_917> <C_962> <O_965> <H_970> <L_914> <C_920> <O_919> <H_944> <L_914> <C_921> <O_919> <H_926> <L_894> <C_897> <O_897> <H_916> <L_892> <C_895> <O_895> <H_907> <L_886> <C_905> <O_905> <H_935> <L_895> <C_926> <O_926> <H_943> <L_923> <C_928> <O_928> <H_959> <L_926> <C_951> <O_950> <H_954> <L_934> <C_937> <O_937> <H_937> <L_898> <C_914> <O_914> <H_945> <L_913> <C_937> <O_938> <H_960> <L_935> <C_954> <O_953> <H_967> <L_930> <C_938> <O_938> <H_944> <L_910> <C_925> <O_925> <H_930> <L_912> <C_915> <O_915> <H_915> <L_864> <C_865> <O_866> <H_891> <L_866> <C_889> <O_889> <H_896> <L_846> <C_851> <O_851> <H_866> <L_842> <C_848> <O_846> <H_862> <L_843> <C_857> <O_858> <H_873> <L_836> <C_872> <O_872> <H_901> <L_872> <C_899> <O_900> <H_925> <L_882> <C_924> <O_924> <H_937> <L_924> <C_935> <O_934> <H_934> <L_907> <C_914> <O_915> <H_926> <L_903> <C_905> <O_906> <H_907> <L_893> <C_898> <O_898> <H_914> <L_891> <C_909> <O_909> <H_911> <L_897> <C_909> <O_909> <H_930> <L_902> <C_929> <O_929> <H_931> <L_904> <C_915> <O_915> <H_928> <L_913> <C_921> <O_922> <H_934> <L_917> <C_926> <O_926> <H_926> <L_905> <C_915> <O_913> <H_920> <L_889> <C_903> <O_901> <H_902> <L_877> <C_881> <O_881> <H_889> <L_866> <C_877> <O_877> <H_887> <L_864> <C_867> <O_868> <H_875> <L_858> <C_869> <O_869> <H_891> <L_867> <C_878> <O_879> <H_882> <L_841> <C_846> <O_847> <H_870> <L_842> <C_863> <O_863> <H_869> <L_849> <C_865> <O_865> <H_876> <L_841> <C_852> <O_852> <H_853> <L_837> <C_840> <O_840> <H_843> <L_815> <C_825> <O_825> <H_834> <L_804> <C_809> <O_811> <H_846> <L_806> <C_843> <O_842> <H_842> <L_816> <C_821> <O_821> <H_861> <L_820> <C_857> <O_857> <H_869> <L_847> <C_869> <O_869> <H_870> <L_824> <C_826> <O_826> <H_836> <L_808> <C_832> <O_832> <H_846> <L_829> <C_838> <O_838> <H_855> <L_838> <C_852> <O_852> <H_872> <L_844> <C_844> <O_845> <H_884> <L_845> <C_879> <O_879> <H_893> <L_876> <C_888> <O_888> <H_889> <L_872> <C_873> <O_873> <H_875> <L_847> <C_856> <O_855> <H_876> <L_854> <C_863> <O_864> <H_864> <L_843> <C_843> <O_843> <H_849> <L_824> <C_824> <O_825> <H_836> <L_780> <C_784> <O_784> <H_841> <L_782> <C_835> <O_836> <H_840> <L_809> <C_811> <O_811> <H_814> <L_796> <C_799> <O_799> <H_816> <L_799> <C_808> <O_807> <H_828> <L_804> <C_824> <O_824> <H_824> <L_811> <C_818> <O_816> <H_828> <L_809> <C_818> <O_818> <H_830> <L_813> <C_814> <O_816> <H_822> <L_802> <C_810> <O_810> <H_816> <L_791> <C_807> <O_808> <H_811> <L_769> <C_771> <O_771> <H_784> <L_751> <C_783> <O_783> <H_804> <L_782> <C_798> <O_798> <H_825> <L_795> <C_822> <O_822> <H_825> <L_807> <C_813> </chart> <think> <trend>UP</trend> <current_price> 0 8 1 3 </current_price> <zone_support> 0 7 5 9 : 0 8 1 0 </zone_support> </think>"
-    completion = "<action> BUY SL: 0 7 3 9 <RR_6> </action>" 
+    prompt = "<chart> <O_1024> <H_1059> <L_999> <C_1033> <O_1029> <H_1033> <L_1004> <C_1004> <O_1004> <H_1016> <L_978> <C_992> <O_992> <H_1023> <L_973> <C_1021> <O_1021> <H_1030> <L_984> <C_988> <O_988> <H_992> <L_955> <C_962> <O_962> <H_967> <L_915> <C_938> <O_938> <H_947> <L_926> <C_942> <O_941> <H_976> <L_933> <C_976> <O_975> <H_983> <L_947> <C_951> <O_951> <H_984> <L_950> <C_979> <O_981> <H_998> <L_960> <C_991> <O_990> <H_1003> <L_975> <C_982> <O_982> <H_994> <L_960> <C_992> <O_992> <H_1011> <L_988> <C_1000> <O_1000> <H_1004> <L_963> <C_965> <O_964> <H_978> <L_932> <C_934> <O_935> <H_958> <L_933> <C_944> <O_943> <H_949> <L_910> <C_912> <O_912> <H_944> <L_899> <C_932> <O_932> <H_963> <L_917> <C_962> <O_965> <H_970> <L_914> <C_920> <O_919> <H_944> <L_914> <C_921> <O_919> <H_926> <L_894> <C_897> <O_897> <H_916> <L_892> <C_895> <O_895> <H_907> <L_886> <C_905> <O_905> <H_935> <L_895> <C_926> <O_926> <H_943> <L_923> <C_928> <O_928> <H_959> <L_926> <C_951> <O_950> <H_954> <L_934> <C_937> <O_937> <H_937> <L_898> <C_914> <O_914> <H_945> <L_913> <C_937> <O_938> <H_960> <L_935> <C_954> <O_953> <H_967> <L_930> <C_938> <O_938> <H_944> <L_910> <C_925> <O_925> <H_930> <L_912> <C_915> <O_915> <H_915> <L_864> <C_865> <O_866> <H_891> <L_866> <C_889> <O_889> <H_896> <L_846> <C_851> <O_851> <H_866> <L_842> <C_848> <O_846> <H_862> <L_843> <C_857> <O_858> <H_873> <L_836> <C_872> <O_872> <H_901> <L_872> <C_899> <O_900> <H_925> <L_882> <C_924> <O_924> <H_937> <L_924> <C_935> <O_934> <H_934> <L_907> <C_914> <O_915> <H_926> <L_903> <C_905> <O_906> <H_907> <L_893> <C_898> <O_898> <H_914> <L_891> <C_909> <O_909> <H_911> <L_897> <C_909> <O_909> <H_930> <L_902> <C_929> <O_929> <H_931> <L_904> <C_915> <O_915> <H_928> <L_913> <C_921> <O_922> <H_934> <L_917> <C_926> <O_926> <H_926> <L_905> <C_915> <O_913> <H_920> <L_889> <C_903> <O_901> <H_902> <L_877> <C_881> <O_881> <H_889> <L_866> <C_877> <O_877> <H_887> <L_864> <C_867> <O_868> <H_875> <L_858> <C_869> <O_869> <H_891> <L_867> <C_878> <O_879> <H_882> <L_841> <C_846> <O_847> <H_870> <L_842> <C_863> <O_863> <H_869> <L_849> <C_865> <O_865> <H_876> <L_841> <C_852> <O_852> <H_853> <L_837> <C_840> <O_840> <H_843> <L_815> <C_825> <O_825> <H_834> <L_804> <C_809> <O_811> <H_846> <L_806> <C_843> <O_842> <H_842> <L_816> <C_821> <O_821> <H_861> <L_820> <C_857> <O_857> <H_869> <L_847> <C_869> <O_869> <H_870> <L_824> <C_826> <O_826> <H_836> <L_808> <C_832> <O_832> <H_846> <L_829> <C_838> <O_838> <H_855> <L_838> <C_852> <O_852> <H_872> <L_844> <C_844> <O_845> <H_884> <L_845> <C_879> <O_879> <H_893> <L_876> <C_888> <O_888> <H_889> <L_872> <C_873> <O_873> <H_875> <L_847> <C_856> <O_855> <H_876> <L_854> <C_863> <O_864> <H_864> <L_843> <C_843> <O_843> <H_849> <L_824> <C_824> <O_825> <H_836> <L_780> <C_784> <O_784> <H_841> <L_782> <C_835> <O_836> <H_840> <L_809> <C_811> <O_811> <H_814> <L_796> <C_799> <O_799> <H_816> <L_799> <C_808> <O_807> <H_828> <L_804> <C_824> <O_824> <H_824> <L_811> <C_818> <O_816> <H_828> <L_809> <C_818> <O_818> <H_830> <L_813> <C_814> <O_816> <H_822> <L_802> <C_810> <O_810> <H_816> <L_791> <C_807> <O_808> <H_811> <L_769> <C_771> <O_771> <H_784> <L_751> <C_783> <O_783> <H_804> <L_782> <C_798> <O_798> <H_825> <L_795> <C_822> <O_822> <H_825> <L_807> <C_813> </chart>"
+    completion = "<think> <trend>UP</trend> <current_price> 0 8 1 3 </current_price> <zone_support> 0 7 5 9 : 0 8 1 0 </zone_support> </think> <action> BUY SL: 0 7 3 9 <RR_1> </action>" 
     future_bins: List[List[int]] = [
         [813, 818, 799, 799], [799, 810, 793, 797], [797, 818, 795, 813],
         [813, 815, 805, 812], [814, 825, 809, 812], [812, 813, 794, 794],
@@ -509,27 +319,16 @@ if __name__ == "__main__":
         [796, 808, 790, 797]
     ]
     
-    parseResult = Parser.from_text(cfg, prompt + " " + completion).parse()
+    parseResult = Parser.from_text(cfg.tlang, prompt + " " + completion).parse()
     if not parseResult.is_well_formed():
         print(parseResult.errors)
         
     parseResult.ast.future_bins = [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins]
     program: ProgramNode = parseResult.ast
     
-    print(f"Action {program.action.action_type} on candle {program.chart.current_price} with SL {program.action.sl} and RR {program.action.rr}")
-    outcome = partial_tp_forward_test(
-        program.chart.current_price,
-        program.action.sl,
-        program.action.rr,
-        cfg.base.trade_fee_bins,
-        program.future_bins,
-        direction = "long" if program.action.action_type == "BUY" else "short",
-        outcome_horizon=cfg.window.outcome_horizon
-    )
-    print(f"Outcome: {outcome}")
-    
-    tlang = TLangReward(cfg)
+    tlang = TLangReward(cfg, stat)
     reward, meta = tlang.compute_reward(prompt, completion, program.future_bins)
+    stat.log(meta)
     print(f"Reward: {reward}")
     
-    print(f"Meta: {meta}")
+    stat.print_summary()
