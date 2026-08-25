@@ -66,45 +66,22 @@ class GRPOEval:
         completions = self.model.generate_batch([{"prompt": p} for p in prompts])
         for symbol_tf, prompt, completion, future_bin in zip(symbols, prompts, completions, future_bins):
             reward, meta = self.reward.compute_reward(prompt, completion, future_bin)
-            results.append((reward, meta))
+            self.stats.log(meta)
+            results.append(reward)
             
-        return {
-            "reward": [r[0] for r in results],
-            "well_formed": [r[1].well_formed for r in results],
-            "semantic_passed": [r[1].semantic_passed for r in results],
-            "trend_type": [r[1].trend_type for r in results],
-            "zone_type": [r[1].zone_type for r in results],
-            "action_type": [r[1].action_type for r in results],
-            "outcome": [r[1].outcome for r in results],
-            "outcome_status": [r[1].outcome_status for r in results],
-            "rr": [r[1].rr for r in results],
-        }
+        return results
         
     def eval(
         self, 
         dataset: Any,
         batch_size: int = 8
     ):
-        reports = dataset.map(
-            self.process_eval,
-            batched=True,
-            batch_size=batch_size,
-            num_proc=os.cpu_count(),
-            remove_columns=dataset.column_names
-        )
-        reward = np.mean(reports["reward"])
-        for r in reports:
-            self.stats.log(TaskRolloutMeta(
-                well_formed=r["well_formed"],
-                semantic_passed=r["semantic_passed"],
-                trend_type=r["trend_type"],
-                zone_type=r["zone_type"],
-                action_type=r["action_type"],
-                outcome=r["outcome"],
-                outcome_status=r["outcome_status"],
-                rr=r["rr"],
-            ))
-            
+        rewards = []
+        for batch in dataset.iter(batch_size=batch_size):
+            rewards.extend(self.process_eval(batch))
+        
+        reward = np.mean(rewards)
+        
         print(f"reward = {reward}")
         self.stats.print_summary()
         self.stats.save_summary_log("./out/grpo_eval.log")
