@@ -16,8 +16,8 @@ set -euo pipefail
 python -m app.training.train_grpo \
     --round_id round1 \
     --model_size base \
-    --source_repo "sullivan1502/base-action-sft" \
-    --dataset_name "sullivan1502/action-data" \
+    --source_repo "sullivan1502/base-action-pretrain" \
+    --dataset_name "$DATASET" \
     \
     --max_completion_length 40 \
     --temperature 1.0 \
@@ -26,7 +26,7 @@ python -m app.training.train_grpo \
     --num_generations 16 \
     \
     --output_dir "./output/base_grpo" \
-    --repo_id "sullivan1502/base-action-grpo" \
+    --repo_id "sullivan1502/base-action-grpo-round1" \
     --hf_token "$HF_TOKEN" \
     \
     --fp16 \
