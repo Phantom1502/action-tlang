@@ -133,9 +133,6 @@ def main(cfg: AppConfig):
     stats_collector = StatsCollector.load(stats_path)
     logger.info(f"[rank={rank}] StatsCollector: nạp lại {len(stats_collector._records)} record cũ.")
     
-    entropy_r_controller: EntropyController = EntropyController.load_or_init(round_config.entropys["r_entropy"], DEFAULT_R_ENTROPY_FILENAME,resume_checkpoint)
-    entropy_controller: EntropyController = EntropyController.load_or_init(round_config.entropys["completions_entropy"], DEFAULT_ENTROPY_FILENAME,resume_checkpoint)
-    
     # ------------------------------------------------------------
     # Dataset — load raw GRPO gốc rồi nhân đôi theo task_id (xem cảnh báo
     # ở docstring module về rủi ro group-by-prompt của GRPOTrainer).
@@ -228,8 +225,6 @@ def main(cfg: AppConfig):
     )
     
     stats_persist_callback = StatsPersistCallback(
-        entropy_controller,
-        entropy_r_controller,
         stats_collector, 
         round_config, 
         args.output_dir
@@ -237,8 +232,6 @@ def main(cfg: AppConfig):
     
     tlang_reward = TLangReward(
         cfg,
-        entropy_controller,
-        entropy_r_controller,
         stats_collector=stats_collector,
     )
     
@@ -272,8 +265,6 @@ def main(cfg: AppConfig):
     trainer.save_model()
     canonical_tok = load_tokenizer(repo_id=args.repo_id, allow_local_fallback=False)
     canonical_tok.save_pretrained(args.output_dir)
-    entropy_controller.save(os.path.join(args.output_dir, DEFAULT_ENTROPY_FILENAME))
-    entropy_r_controller.save(os.path.join(args.output_dir, DEFAULT_R_ENTROPY_FILENAME))
     stats_collector.save(stats_path)
 
     if push_to_hub:
