@@ -1,5 +1,7 @@
 import numpy as np
 import os
+from tqdm import tqdm
+
 from typing import List, Dict, Tuple, Any, Optional
 
 from app.config import AppConfig, get_scale
@@ -76,8 +78,9 @@ class GRPOEval:
         dataset: Any,
         batch_size: int = 8
     ):
+        total_batches = (len(dataset) + batch_size - 1) // batch_size
         rewards = []
-        for batch in dataset.iter(batch_size=batch_size):
+        for batch in tqdm(dataset.iter(batch_size=batch_size), total=total_batches, desc="Evaluating"):
             rewards.extend(self.process_eval(batch))
         
         reward = np.mean(rewards)
