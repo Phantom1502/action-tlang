@@ -27,7 +27,7 @@ class GRPOEval:
             model_revision, 
             model_subset,
             max_new_tokens=36,
-            do_sample=True,
+            do_sample=False,
         )
         self.visitor = ASTVisitor(digit_pad=cfg.tlang.digit_pad)
         self.stats = StatsCollector()
