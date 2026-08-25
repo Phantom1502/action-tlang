@@ -15,7 +15,7 @@ from tlang import (
 )
 from app.training.reward import TLangReward
 
-class GRPOEval:
+class GRPODatasetBuilder:
     def __init__(
         self, 
         cfg: AppConfig,
@@ -157,7 +157,7 @@ if __name__ == "__main__":
     val_ds = dataset["val"]
     val_ds = val_ds.select(range(4))
     
-    grpo_eval = GRPOEval(
+    grpo_eval = GRPODatasetBuilder(
         cfg, 
         "sullivan1502/base-action-pretrain",
         model_revision="afa956a788e6b01e2404ba7fed38e9963a96fdca", #r450

@@ -105,7 +105,7 @@ if __name__ == "__main__":
     grpo_eval = GRPOEval(
         cfg, 
         "sullivan1502/base-action-pretrain",
-        model_revision="afa956a788e6b01e2404ba7fed38e9963a96fdca", #r450
+        model_revision="68c9a88af6f882435c4950e764ba39bc72cf9831", #r500
         model_subset="last-checkpoint",
     )
     grpo_eval.eval(val_ds, batch_size=8)

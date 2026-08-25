@@ -19,7 +19,7 @@ python -m app.training.train_grpo \
     --source_repo "sullivan1502/base-action-sft" \
     --dataset_name "sullivan1502/action-data" \
     \
-    --max_completion_length 12 \
+    --max_completion_length 40 \
     --temperature 1.0 \
     --top_p 1.0 \
     --top_k 0 \

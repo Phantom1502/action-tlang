@@ -18,7 +18,7 @@ grpo:
   batch_size: 16
   gradient_accumulation_steps: 16
   learning_rate: 1e-6
-  warmup_steps: 300
-  max_steps: 30000
+  warmup_steps: 4
+  max_steps: 80
   logging_steps: 10
-  save_steps: 100
+  save_steps: 10
