@@ -366,7 +366,7 @@ def build_grpo_dataset(
                             ),
                             action=action
                         )
-                        zone_qualitys[score.zone_quality] = (future_idx, score.zone_quality, program)
+                        zone_qualitys[score] = (future_idx, score, program)
                 
                 # giữ lại zone tốt nhất cho zone type này
                 if len(zone_qualitys) > 0:
