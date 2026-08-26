@@ -379,7 +379,7 @@ def build_grpo_dataset(
                 elif len(results) > 1:
                     # find nearest zone by min idx
                     min_idx, best_quality, best_program = min(results, key=lambda x: (x[0], -x[1]))
-            
+            print(best_program)
             if best_program is None:
                 best_program: ProgramNode = ProgramNode(
                     chart=chart,
