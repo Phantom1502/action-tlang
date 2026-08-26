@@ -402,13 +402,11 @@ def build_grpo_dataset(
             zones.append(best_program.think.zone_type.value)
             zone_ranges.append([best_program.think.zone.lower_bin, best_program.think.zone.upper_bin] if best_program.think.zone is not None else [0, 0])
             actions.append(best_program.action.action_type.value)
-            sls.append(best_program.action.sl if best_program.action.sl is not None else 0)
-            rrs.append(best_program.action.rr if best_program.action.rr is not None else 0)
+            sls.append(int(best_program.action.sl) if best_program.action.sl is not None else 0)
+            rrs.append(int(best_program.action.rr) if best_program.action.rr is not None else 0)
             symbols.append(symbol_tf)
                 
         print(counter)
-        print(sls)
-        print(rrs)
                 
         # Trả về các cột mới cho Dataset LLM
         return {
