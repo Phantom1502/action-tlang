@@ -26,7 +26,7 @@ python -m app.training.train_grpo \
     --num_generations 16 \
     \
     --output_dir "./output/base_grpo" \
-    --repo_id "sullivan1502/base-action-grpo-round1" \
+    --repo_id "sullivan1502/base-action-grpo" \
     --hf_token "$HF_TOKEN" \
     \
     --fp16 \
