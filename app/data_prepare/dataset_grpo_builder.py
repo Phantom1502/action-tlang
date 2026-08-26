@@ -351,7 +351,7 @@ def build_grpo_dataset(
                             think=ThinkNode(
                                 trend=trend,
                                 current_price_bin=chart.current_price,
-                                zone=zone
+                                zone=ZoneNode(zone_direction, lower_bin, upper_bin)
                             ),
                             action=action
                         )
@@ -362,7 +362,7 @@ def build_grpo_dataset(
                             think=ThinkNode(
                                 trend=TrendType.RANGE,
                                 current_price_bin=chart.current_price,
-                                zone=zone
+                                zone=ZoneNode(zone_direction, lower_bin, upper_bin)
                             ),
                             action=action
                         )
