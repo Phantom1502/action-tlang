@@ -407,6 +407,8 @@ def build_grpo_dataset(
             symbols.append(symbol_tf)
                 
         print(counter)
+        print(sls)
+        print(rrs)
                 
         # Trả về các cột mới cho Dataset LLM
         return {
