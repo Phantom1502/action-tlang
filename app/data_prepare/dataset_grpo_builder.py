@@ -402,8 +402,8 @@ def build_grpo_dataset(
             zones.append(best_program.think.zone_type.value)
             zone_ranges.append([best_program.think.zone_lower, best_program.think.zone_upper])
             actions.append(best_program.action.action_type.value)
-            sls.append(best_program.action.sl)
-            rrs.append(best_program.action.rr)
+            sls.append(best_program.action.sl if best_program.action.sl is not None else 0)
+            rrs.append(best_program.action.rr if best_program.action.rr is not None else 0)
             symbols.append(symbol_tf)
                 
         print(counter)
