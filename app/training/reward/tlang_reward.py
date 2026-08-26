@@ -215,6 +215,8 @@ class TLangReward:
         prompt: str,
         completion: str,
         future_candles: List[CandleNode],
+        trend: str,
+        action: str
     ) -> Tuple[float, TaskRolloutMeta]:
         reward = 0.0
 
@@ -236,6 +238,34 @@ class TLangReward:
             )
             return reward, meta
         
+        # check match
+        if program.think.trend.value != trend:
+            return reward, TaskRolloutMeta(
+                well_formed=True,
+                semantic_passed=True,
+                trend_type=program.think.trend.value,
+                zone_type=program.think.zone_type.value,
+                action_type=program.action.action_type.value,
+                outcome=None,
+                outcome_status=None,
+                rr=None
+            )
+        reward += 0.5
+        
+        if program.action.action_type.value != action:
+            return reward, TaskRolloutMeta(
+                well_formed=True,
+                semantic_passed=True,
+                trend_type=program.think.trend.value,
+                zone_type=program.think.zone_type.value,
+                action_type=program.action.action_type.value,
+                outcome=None,
+                outcome_status=None,
+                rr=None
+            )
+        reward += 0.5
+        
+        # if all pass, forward test
         score: ForwardTestResult = self.action_score(program, future_candles)
         reward += score.score
         
@@ -256,12 +286,14 @@ class TLangReward:
         prompts: Sequence[Any],
         completions: Sequence[str],
         future_bins: Sequence[Sequence[Sequence[int]]],
+        trends: Sequence[str],
+        actions: Sequence[str],
         **kwargs,
     ) -> List[float]:
         rewards: List[float] = []
-        for prompt, completion, future_bin in zip(prompts, completions, future_bins):
+        for prompt, completion, future_bin, trend, action in zip(prompts, completions, future_bins, trends, actions):
             future_candles = [CandleNode(o[0], o[1], o[2], o[3]) for o in future_bin]
-            reward, meta = self.compute_reward(prompt, completion, future_candles)
+            reward, meta = self.compute_reward(prompt, completion, future_candles, trend, action)
             rewards.append(reward)
                 
             if self.stats_collector is not None:

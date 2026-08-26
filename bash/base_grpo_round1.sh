@@ -17,9 +17,9 @@ python -m app.training.train_grpo \
     --round_id round1 \
     --model_size base \
     --source_repo "sullivan1502/base-action-pretrain" \
-    --dataset_name "$DATASET" \
+    --dataset_name "sullivan1502/action-grpo-data" \
     \
-    --max_completion_length 40 \
+    --max_completion_length 32 \
     --temperature 1.0 \
     --top_p 1.0 \
     --top_k 0 \

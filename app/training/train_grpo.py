@@ -74,9 +74,6 @@ def main(cfg: AppConfig):
     from app.training.reward import (
         TLangReward, 
         StatsCollector, 
-        EntropyController, 
-        DEFAULT_ENTROPY_FILENAME,
-        DEFAULT_R_ENTROPY_FILENAME,
         StatsPersistCallback,
         stats_path_for_rank
     )
@@ -138,8 +135,8 @@ def main(cfg: AppConfig):
     # ở docstring module về rủi ro group-by-prompt của GRPOTrainer).
     # remove_unused_columns PHẢI False (cần cả future_bins lẫn task_id).
     # ------------------------------------------------------------
-    #raw = load_dataset(args.dataset_name, split=args.train_split)
-    raw = load_dataset("parquet", data_files=args.dataset_name, split=args.train_split)
+    raw = load_dataset(args.dataset_name, split=args.train_split)
+    #raw = load_dataset("parquet", data_files=args.dataset_name, split=args.train_split)
     
     train_cfg: TrainingConfig = cfg.training['grpo']
     print(train_cfg)
@@ -191,7 +188,7 @@ def main(cfg: AppConfig):
         # để không cản học nhưng vẫn có phanh. Bắt đầu 0.02, tăng lên nếu vẫn
         # thấy grad_norm/entropy collapse sau khi áp dụng.
         # =====================================================================
-        beta=0.02,
+        beta=0.2,
 
         # =====================================================================
         # THÊM MỚI — chuẩn hoá reward theo std TOÀN BATCH thay vì std của từng
