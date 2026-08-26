@@ -407,6 +407,13 @@ def build_grpo_dataset(
             symbols.append(symbol_tf)
                 
         print(counter)
+        print(trends)
+        print(zones)
+        print(zone_ranges)
+        print(actions)
+        print(sls)
+        print(rrs)
+        print(symbols)
                 
         # Trả về các cột mới cho Dataset LLM
         return {
