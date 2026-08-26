@@ -288,15 +288,15 @@ def build_grpo_dataset(
     counter = Counter()
     ast_visitor = ASTVisitor(digit_pad=cfg.tlang.digit_pad)
     def preprocess_for_llm(batch):
-        symbols = []
-        prompts = []
-        future_bins = []
-        trends = []
-        zones = []
-        zone_ranges = []
-        actions = []
-        sls = []
-        rrs = []
+        symbols_records = []
+        prompts_records = []
+        future_bins_records = []
+        trends_records = []
+        zones_records = []
+        zone_ranges_records = []
+        actions_records = []
+        sls_records = []
+        rrs_records = []
         
         batch_size = len(batch["symbol"])
         
@@ -396,30 +396,28 @@ def build_grpo_dataset(
                 counter[f"{best_program.think.trend.value}_{best_program.think.zone.direction.value}"] += 1
             
             prompt = ast_visitor.render_chart_block(best_program.chart.candles)
-            prompts.append(prompt)
-            future_bins.append([[int(candle.open), int(candle.high), int(candle.low), int(candle.close)] for candle in future_candles])
-            trends.append(best_program.think.trend.value)
-            zones.append(best_program.think.zone_type.value)
-            zone_ranges.append([int(best_program.think.zone.lower_bin), int(best_program.think.zone.upper_bin)] if best_program.think.zone is not None else [0, 0])
-            actions.append(best_program.action.action_type.value)
-            sls.append(int(best_program.action.sl) if best_program.action.sl is not None else 0)
-            rrs.append(int(best_program.action.rr) if best_program.action.rr is not None else 0)
-            symbols.append(symbol_tf)
-                
-        print(counter)
-        print(zones)
-                
+            prompts_records.append(prompt)
+            future_bins_records.append([[int(candle.open), int(candle.high), int(candle.low), int(candle.close)] for candle in future_candles])
+            trends_records.append(best_program.think.trend.value)
+            zones_records.append(best_program.think.zone_type.value)
+            zone_ranges_records.append([int(best_program.think.zone.lower_bin), int(best_program.think.zone.upper_bin)] if best_program.think.zone is not None else [0, 0])
+            actions_records.append(best_program.action.action_type.value)
+            sls_records.append(int(best_program.action.sl) if best_program.action.sl is not None else 0)
+            rrs_records.append(int(best_program.action.rr) if best_program.action.rr is not None else 0)
+            symbols_records.append(symbol_tf)
+               
+        print(counter) 
         # Trả về các cột mới cho Dataset LLM
         return {
-            "prompt": prompts,
-            "future_bins": future_bins,
-            "trends": trends,
-            "zones": zones,
-            "zone_ranges": zone_ranges,
-            "actions": actions,
-            "sls": sls,
-            "rrs": rrs,
-            "symbol": symbols,
+            "prompt": prompts_records,
+            "future_bins": future_bins_records,
+            "trends": trends_records,
+            "zones": zones_records,
+            "zone_ranges": zone_ranges_records,
+            "actions": actions_records,
+            "sls": sls_records,
+            "rrs": rrs_records,
+            "symbol": symbols_records,
         }
         
     llm_dataset = dataset.map(
