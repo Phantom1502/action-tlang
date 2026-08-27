@@ -67,7 +67,7 @@ class GRPOEval:
         results = []
         completions = self.model.generate_batch([{"prompt": p} for p in prompts])
         for symbol_tf, prompt, completion, future_bin in zip(symbols, prompts, completions, future_bins):
-            reward, meta = self.reward.compute_reward(prompt, completion, future_bin, "up", "buy")
+            reward, meta = self.reward.compute_reward(prompt, completion, future_bin, hints=[])
             self.stats.log(meta)
             results.append(reward)
             

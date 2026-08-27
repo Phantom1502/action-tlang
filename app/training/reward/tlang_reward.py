@@ -597,7 +597,7 @@ if __name__ == "__main__":
     program: ProgramNode = parseResult.ast
     
     tlang = TLangReward(cfg, stat)
-    reward, meta = tlang.compute_reward(prompt, completion, program.future_bins)
+    reward, meta = tlang.compute_reward(prompt, completion, program.future_bins, [])
     stat.log(meta)
     print(f"Reward: {reward}")
     
