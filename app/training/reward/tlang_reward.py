@@ -19,7 +19,7 @@ from tlang import (
 )
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
 
-DEGENERATE_GROUP_STD_EPS = 0.5
+DEGENERATE_GROUP_STD_EPS = 0.9
 
 @dataclass
 class CommonGateResult:
