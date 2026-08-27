@@ -145,11 +145,13 @@ class TLangReward:
     def __init__(
         self, 
         cfg: AppConfig,
-        stats_collector: Optional[StatsCollector] = None
+        stats_collector: Optional[StatsCollector] = None,
+        mode="train"
     ):
         self.__name__ = "TLangReward"
         self.cfg = cfg
         self.stats_collector = stats_collector
+        self.mode = mode
         
     def common_check(
         self,
@@ -235,36 +237,37 @@ class TLangReward:
             )
             return reward, meta
         
-        # check match
-        if program.think.trend.value != trend:
-            return reward, TaskRolloutMeta(
-                well_formed=True,
-                semantic_passed=True,
-                trend_passed=False,
-                action_passed=False,
-                trend_type=None,
-                zone_type=None,
-                action_type=None,
-                outcome=None,
-                outcome_status=None,
-                rr=None
-            )
-        reward += 0.5
-        
-        if program.action.action_type.value != action:
-            return reward, TaskRolloutMeta(
-                well_formed=True,
-                semantic_passed=True,
-                trend_passed=True,
-                action_passed=False,
-                trend_type=None,
-                zone_type=None,
-                action_type=None,
-                outcome=None,
-                outcome_status=None,
-                rr=None
-            )
-        reward += 0.5
+        if self.mode == "train":
+            # check match
+            if program.think.trend.value != trend:
+                return reward, TaskRolloutMeta(
+                    well_formed=True,
+                    semantic_passed=True,
+                    trend_passed=False,
+                    action_passed=False,
+                    trend_type=None,
+                    zone_type=None,
+                    action_type=None,
+                    outcome=None,
+                    outcome_status=None,
+                    rr=None
+                )
+            reward += 0.5
+            
+            if program.action.action_type.value != action:
+                return reward, TaskRolloutMeta(
+                    well_formed=True,
+                    semantic_passed=True,
+                    trend_passed=True,
+                    action_passed=False,
+                    trend_type=None,
+                    zone_type=None,
+                    action_type=None,
+                    outcome=None,
+                    outcome_status=None,
+                    rr=None
+                )
+            reward += 0.5
         
         # if all pass, forward test
         score: ForwardTestResult = self.action_score(program, future_candles)
