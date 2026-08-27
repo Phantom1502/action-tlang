@@ -9,7 +9,11 @@ from app.inference.model_inference import ModelInference
 from tlang import (
     ChartCodec,
     ChartNode,  
-    
+    Parser,
+    ParseResult,
+    SemanticChecker,
+    SemanticResult,
+    ProgramNode,
     ASTVisitor,
 )
 from app.training.reward import TLangReward, StatsCollector
@@ -66,9 +70,15 @@ class GRPOEval:
          
         results = []
         completions = self.model.generate_batch([{"prompt": p} for p in prompts])
-        for symbol_tf, prompt, completion, future_bin in zip(symbols, prompts, completions, future_bins):
-            reward, meta = self.reward.compute_reward(prompt, completion, future_bin)
-            self.stats.log(meta)
+        for symbol_tf, prompt, completion, future_candles in zip(symbols, prompts, completions, future_bins):
+            reward = 0.0
+            
+            parse_result: ParseResult = Parser.from_text(self.cfg.tlang, prompt + " " + completion).parse()
+            program = parse_result.ast
+            common_result = self.reward.common_check(parse_result, program)
+            reward += common_result.gate_score
+            score = self.reward.action_score(program, future_candles)
+            reward += score.score
             results.append(reward)
             
         return results
