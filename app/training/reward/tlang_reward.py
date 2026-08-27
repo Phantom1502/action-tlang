@@ -88,7 +88,7 @@ def forward_test(
             hit_tp = candle.low <= target_bin
 
         if hit_sl:
-            return ForwardTestResult(OutcomeStatus.LOSS, 0.0, 0.0)
+            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0)
         if hit_tp:
             r_multiple = int(abs(target_bin - entry_bin) / risk)
             if r_multiple == 1: # r_multiple = 1
