@@ -19,6 +19,8 @@ def stats_path_for_rank(output_dir: str, round_id: str, rank: int) -> str:
 class TaskRolloutMeta:
     well_formed: bool
     semantic_passed: bool
+    trend_passed: bool
+    action_passed: bool
     trend_type: Optional[str]         # "UP" / "DOWN" / "RANGE" — None nếu chưa pass gate
     zone_type: Optional[str]          # "support" / "resistance" — None nếu chưa pass gate
     action_type: Optional[str]        # "BUY" / "SELL" / "HOLD" — None nếu chưa pass gate
@@ -101,7 +103,7 @@ class StatsCollector:
             )
         )
         for r in self._records:
-            if not (r.well_formed and r.semantic_passed) or r.trend_type is None:
+            if not (r.well_formed and r.semantic_passed and r.trend_passed and r.action_passed) or r.trend_type is None:
                 continue
             by_trend_total[r.trend_type] += 1
             by_zone_total[r.trend_type][r.zone_type] += 1
@@ -135,6 +137,8 @@ class StatsCollector:
         n = len(self._records)
         n_wf = sum(1 for r in self._records if r.well_formed)
         n_sem = sum(1 for r in self._records if r.well_formed and r.semantic_passed)
+        n_trend = sum(1 for r in self._records if r.trend_passed and r.well_formed and r.semantic_passed)
+        n_action = sum(1 for r in self._records if r.action_passed and r.trend_passed and r.well_formed and r.semantic_passed)
 
         print("=== StatsCollector summary (task2 — action) ===")
         print(f"n_records = {n}")
@@ -142,6 +146,10 @@ class StatsCollector:
             print(f"well_form_rate = {n_wf / n * 100:.1f}%")
         if n_wf:
             print(f"semantic_pass_rate (trong số well-formed) = {n_sem / n_wf * 100:.1f}%")
+        if n_sem:
+            print(f"trend_pass_rate (trong số semantic-passed) = {n_trend / n_sem * 100:.1f}%")
+        if n_trend:
+            print(f"action_pass_rate (trong số trend-passed) = {n_action / n_trend * 100:.1f}%")
 
         print("\n-- Chi tiết theo zone -> action (đã pass gate) --")
         detail = self.summary()

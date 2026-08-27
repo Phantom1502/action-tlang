@@ -88,13 +88,13 @@ def forward_test(
             hit_tp = candle.low <= target_bin
 
         if hit_sl:
-            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0)
+            return ForwardTestResult(OutcomeStatus.LOSS, 0.0, 0.0)
         if hit_tp:
             r_multiple = int(abs(target_bin - entry_bin) / risk)
             if r_multiple == 1: # r_multiple = 1
-                return ForwardTestResult(OutcomeStatus.WIN, r_multiple, 0.5)
+                return ForwardTestResult(OutcomeStatus.WIN, r_multiple, r_multiple)
             else: # r_multiple > 1
-                return ForwardTestResult(OutcomeStatus.WIN, r_multiple, 1.5)
+                return ForwardTestResult(OutcomeStatus.WIN, r_multiple, r_multiple)
             
     return ForwardTestResult(OutcomeStatus.TIMEOUT, 0.0, 0.0)
 
@@ -185,20 +185,12 @@ class TLangReward:
         program: ProgramNode,
         future_bins: List[CandleNode],
     ) -> ForwardTestResult:
-        '''
-        Phần thưởng sẽ có 4 mốc:
-        - 0.0: lệnh lỗi, bị dính sl, timeout
-        - 0.5: rr = 1
-        - 1.0: HOLD, entry timeout (ko vào đc lệnh thì ko lỗ, tương đương HOLD)
-        - 1.5: lệnh thắng với RR >= 2
-        '''
-        
         action: ActionNode = program.action
         if action.action_type == ActionType.HOLD:
             return ForwardTestResult(
                 OutcomeStatus.HOLD,
                 0.0,
-                1.0 # 
+                0.0 # 
             )
         
         return eval_outcome(
@@ -229,6 +221,8 @@ class TLangReward:
             meta = TaskRolloutMeta(
                 well_formed=parse_result.is_well_formed(),
                 semantic_passed=False,
+                trend_passed=False,
+                action_passed=False,
                 trend_type=None,
                 zone_type=None,
                 action_type=None,
@@ -243,9 +237,11 @@ class TLangReward:
             return reward, TaskRolloutMeta(
                 well_formed=True,
                 semantic_passed=True,
-                trend_type=program.think.trend.value,
-                zone_type=program.think.zone_type.value,
-                action_type=program.action.action_type.value,
+                trend_passed=False,
+                action_passed=False,
+                trend_type=None,
+                zone_type=None,
+                action_type=None,
                 outcome=None,
                 outcome_status=None,
                 rr=None
@@ -256,9 +252,11 @@ class TLangReward:
             return reward, TaskRolloutMeta(
                 well_formed=True,
                 semantic_passed=True,
-                trend_type=program.think.trend.value,
-                zone_type=program.think.zone_type.value,
-                action_type=program.action.action_type.value,
+                trend_passed=True,
+                action_passed=False,
+                trend_type=None,
+                zone_type=None,
+                action_type=None,
                 outcome=None,
                 outcome_status=None,
                 rr=None
@@ -272,6 +270,8 @@ class TLangReward:
         meta = TaskRolloutMeta(
             well_formed=True,
             semantic_passed=True,
+            trend_passed=True,
+            action_passed=True,
             trend_type=program.think.trend.value,
             zone_type=program.think.zone_type.value,
             action_type=program.action.action_type.value,
