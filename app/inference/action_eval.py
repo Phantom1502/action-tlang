@@ -77,8 +77,9 @@ class GRPOEval:
             program = parse_result.ast
             common_result = self.reward.common_check(parse_result, program)
             reward += common_result.gate_score
-            score = self.reward.action_score(program, future_candles)
-            reward += score.score
+            if common_result.passed:
+                score = self.reward.action_score(program, future_candles)
+                reward += score.score
             results.append(reward)
             
         return results
