@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any, List, Optional, Sequence, Tuple, Dict
+from typing import Any, List, Optional, Sequence, Tuple, Dict, Literal
 from enum import Enum
 from collections import defaultdict
 
@@ -16,10 +16,12 @@ from tlang import (
     SemanticResult,
     ZoneDirection,
     ActionType,
+    TrendType
 )
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
 
-DEGENERATE_GROUP_STD_EPS = 0.9
+DEGENERATE_GROUP_STD_EPS = 0.7
+ZONE_PROBE_SL_BUFFER_BINS = 1
 
 @dataclass
 class CommonGateResult:
@@ -45,6 +47,166 @@ class ForwardTestResult:
     status: OutcomeStatus
     r_multiple: float                   # có thể dùng để thống kê
     score: float                        # reward cho model học
+
+def find_truly_valid_zones(
+    input_candles: List[CandleNode],
+    last_n: int,
+    future_candles: List[CandleNode],
+    mode: Literal[ZoneDirection.support, ZoneDirection.resistance] = ZoneDirection.support,
+    swing_window: int = 2,
+    zone_width: int = 50,
+    max_bin: int = 2047
+) -> List[Tuple[int, int, int]]:
+    last_n_candles = input_candles[-last_n:]
+    candles = last_n_candles + future_candles
+    n = len(candles)
+    
+    valid_input_min = min(c.low for c in input_candles)
+    valid_input_max = max(c.high for c in input_candles)
+    valid_zone_ranges = [valid_input_min, valid_input_max]
+    
+    valid_swings = []
+    if n <= last_n:
+        return valid_swings
+    
+    is_support = (mode == ZoneDirection.support)
+    for i in range(last_n, n):
+        # 1. KIỂM TRA ĐIỀU KIỆN SWING HIGH / SWING LOW
+        # Đảm bảo đủ số nến swing_window ở hai bên
+        left_start = max(0, i - swing_window)
+        right_end = min(n - 1, i + swing_window)
+
+        if is_support:
+            current_val = candles[i].low
+            # Là Swing Low nếu giá Low hiện tại <= tất cả các nến trong cửa sổ xung quanh
+            is_swing = all(current_val <= candles[j].low for j in range(left_start, right_end + 1) if j != i)
+        else:
+            current_val = candles[i].high
+            # Là Swing High nếu giá High hiện tại >= tất cả các nến trong cửa sổ xung quanh
+            is_swing = all(current_val >= candles[j].high for j in range(left_start, right_end + 1) if j != i)
+
+        if not is_swing:
+            continue
+        
+        if len(valid_swings) == 0:
+            valid_swings.append((i, current_val))
+        else:
+            if is_support:
+                min_swing = valid_swings[-1][1]
+                if current_val < min_swing:
+                    valid_swings.append((i, current_val))
+            else:
+                max_swing = valid_swings[-1][1]
+                if current_val > max_swing:
+                    valid_swings.append((i, current_val))
+
+    # group all nearby swings into zones
+    valid_zones = []
+    for idx, swing in valid_swings:
+        if len(valid_zones) == 0:
+            valid_zones.append((idx, swing, swing))
+        else:
+            id, slow, shigh = valid_zones[-1]
+            if is_support:
+                if shigh - swing <= zone_width:
+                    valid_zones[-1] = (id, swing, shigh)
+                else:
+                    valid_zones.append((idx, swing, swing))
+            else:
+                if swing - slow <= zone_width:
+                    valid_zones[-1] = (id, slow, swing)
+                else:
+                    valid_zones.append((idx, swing, swing))
+
+    # extend valid_zones to zone_width
+    results = []
+    for id, slow, shigh in valid_zones:
+        if is_support:
+            if shigh - slow <= zone_width:
+                remain = zone_width - (shigh - slow)
+                lower_bin = max(0, slow - remain // 2)
+                upper_bin = lower_bin + zone_width
+                    
+                if upper_bin >= valid_zone_ranges[0]:
+                    results.append((id, lower_bin, upper_bin, upper_bin - lower_bin))
+        else:
+            if shigh - slow <= zone_width:
+                remain = zone_width - (shigh - slow)
+                upper_bin = min(max_bin, shigh + remain // 2)
+                lower_bin = upper_bin - zone_width
+                    
+                if lower_bin <= valid_zone_ranges[1]:
+                    results.append((id, lower_bin, upper_bin, upper_bin - lower_bin))
+
+    return results
+
+def find_best_rr(
+    action_type: ActionType,
+    entry_price: int,
+    sl: int,
+    future_candles: List[CandleNode],
+    rr_min: int,
+    rr_max: int
+)-> int:
+    best_rr = 0
+    for rr in range(rr_min, rr_max + 1):
+        if action_type == ActionType.BUY:
+            target = derive_target(entry_price, sl, rr, "long")
+            for candle in future_candles:
+                hit_sl = candle.low <= sl
+                if hit_sl:
+                    return rr
+                hit_target = candle.high >= target
+                if hit_target:
+                    best_rr = rr
+                    continue
+        else:
+            target = derive_target(entry_price, sl, rr, "short")
+            for candle in future_candles:
+                hit_sl = candle.high >= sl
+                if hit_sl:
+                    return rr
+                hit_target = candle.low <= target
+                if hit_target:
+                    best_rr = rr
+                    continue
+    return best_rr
+
+def zone_score(
+    zone: ZoneNode,
+    future_candles: List[CandleNode],
+    rr_min: int, 
+    rr_max: int,
+) -> float:
+    touch_idx = None
+    if zone.direction == ZoneDirection.support:
+        touch_idx = _find_entry_touch(zone.upper_bin, ActionType.BUY, future_candles)
+    else:
+        touch_idx = _find_entry_touch(zone.lower_bin, ActionType.SELL, future_candles)
+        
+    if touch_idx is None:
+        return 0.0
+
+    rr = 0
+    if zone.direction == ZoneDirection.support:
+        rr = find_best_rr(
+            ActionType.BUY, 
+            zone.upper_bin, 
+            zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, 
+            future_candles[touch_idx:], 
+            rr_min, 
+            rr_max
+        )
+    else:
+        rr = find_best_rr(
+            ActionType.SELL, 
+            zone.lower_bin, 
+            zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, 
+            future_candles[touch_idx:], 
+            rr_min, 
+            rr_max
+        )
+    return rr
 
 def _find_entry_touch(entry_price: int, type: ActionType, candles: List[CandleNode]) -> Optional[int]:
     """Index nến ĐẦU TIÊN có [low,high] giao với [zone.lower_bin,
@@ -212,8 +374,7 @@ class TLangReward:
         prompt: str,
         completion: str,
         future_candles: List[CandleNode],
-        trend: str,
-        action: str
+        hints: List[Tuple[str, str]]
     ) -> Tuple[float, TaskRolloutMeta]:
         reward = 0.0
 
@@ -237,9 +398,10 @@ class TLangReward:
             )
             return reward, meta
         
+        
         if self.mode == "train":
             # check match
-            if program.think.trend.value != trend:
+            if program.think.trend.value not in [h[0] for h in hints]:
                 return reward, TaskRolloutMeta(
                     well_formed=True,
                     semantic_passed=True,
@@ -254,7 +416,9 @@ class TLangReward:
                 )
             reward += 0.5
             
-            if program.action.action_type.value != action:
+            valid_pairs = [(h[0], h[1]) for h in hints]
+            pair = (program.think.trend.value, program.action.action_type.value)
+            if pair not in valid_pairs:
                 return reward, TaskRolloutMeta(
                     well_formed=True,
                     semantic_passed=True,
@@ -287,23 +451,65 @@ class TLangReward:
         )
         return reward, meta
     
+    def _caching_hint_type(self, prompt: str, future_candles: List[CandleNode]) -> List[Tuple[str, str]]:
+        cached = self._cached_hint_type.get(prompt)
+        if cached is not None:
+            return cached
+
+        results: List[Tuple[str, str]] = []  
+        candles: List[CandleNode] = Parser.from_text(self.cfg.tlang, prompt).parse().ast.chart.candles
+        for zone_direction in (ZoneDirection.support, ZoneDirection.resistance):
+            zones = find_truly_valid_zones(
+                candles, 
+                self.cfg.tlang.last_n_touch, 
+                future_candles, 
+                zone_direction, 
+                swing_window=5, 
+                zone_width=self.cfg.tlang.zone_range[0],
+                max_bin=self.cfg.tlang.n_bins
+            )
+            zone_qualitys: Dict[float, Tuple[str, str]] = {}
+            for _, lower_bin, upper_bin, _ in zones:
+                zone = ZoneNode(zone_direction, lower_bin, upper_bin)
+                score = zone_score(zone, future_candles, cfg.base.rr_min, cfg.base.rr_max) * cfg.base.zone_score_weight
+                if score > 0.6:
+                    if zone_direction == ZoneDirection.support:
+                        zone_qualitys[score] = (TrendType.UP.value, ActionType.BUY.value)
+                    else:
+                        zone_qualitys[score] = (TrendType.DOWN.value, ActionType.SELL.value)
+                elif score > 0.3:
+                    if zone_direction == ZoneDirection.support:
+                        zone_qualitys[score] = (TrendType.RANGE.value, ActionType.BUY.value)
+                    else:
+                        zone_qualitys[score] = (TrendType.RANGE.value, ActionType.SELL.value)
+            
+            # giữ lại các cặp khả dĩ (trend, action)
+            if len(zone_qualitys) > 0:
+                results.append(zone_qualitys[max(zone_qualitys.keys())]) 
+
+        if len(results) == 0:
+            results.append((TrendType.RANGE.value, ActionType.HOLD.value))
+        
+        self._cached_hint_type[prompt] = results
+        return results
+    
     def __call__(
         self,
         prompts: Sequence[Any],
         completions: Sequence[str],
         future_bins: Sequence[Sequence[Sequence[int]]],
-        trends: Sequence[str],
-        actions: Sequence[str],
         **kwargs,
     ) -> List[float]:
         n = len(prompts)
         rewards: List[float] = [0.0] * n
         metas: List[TaskRolloutMeta] = [None] * n
 
+        self._cached_hint_type: Dict[Any, List[Tuple[str, str]]] = {}
         for i in range(n):
             future_candles: List[CandleNode] = [CandleNode(c[0], c[1], c[2], c[3]) for c in future_bins[i]]
+            hints: List[Tuple[str, str]] = self._caching_hint_type(prompts[i], future_candles)
             reward, meta = self.compute_reward(
-                prompts[i], completions[i], future_candles, trends[i], actions[i],
+                prompts[i], completions[i], future_candles, hints,
             )
             rewards[i] = reward
             metas[i] = meta
@@ -382,8 +588,9 @@ if __name__ == "__main__":
         [796, 808, 790, 797]
     ]
     
-    parseResult = Parser.from_text(cfg.tlang, prompt + " " + completion).parse()
+    parseResult = Parser.from_text(cfg.tlang, prompt).parse()
     if not parseResult.is_well_formed():
+        print(parseResult.ast)
         print(parseResult.errors)
         
     parseResult.ast.future_bins = [CandleNode(open=c[0], high=c[1], low=c[2], close=c[3]) for c in future_bins]
