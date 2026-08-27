@@ -298,8 +298,9 @@ class TLangReward:
         metas: List[TaskRolloutMeta] = [None] * n
 
         for i in range(n):
+            future_candles: List[CandleNode] = [CandleNode(c[0], c[1], c[2], c[3]) for c in future_bins[i]]
             reward, meta = self.compute_reward(
-                prompts[i], completions[i], future_bins[i], trends[i], actions[i],
+                prompts[i], completions[i], future_candles, trends[i], actions[i],
             )
             rewards[i] = reward
             metas[i] = meta
