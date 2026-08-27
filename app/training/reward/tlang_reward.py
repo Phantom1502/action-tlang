@@ -471,7 +471,7 @@ class TLangReward:
             zone_qualitys: Dict[float, Tuple[str, str]] = {}
             for _, lower_bin, upper_bin, _ in zones:
                 zone = ZoneNode(zone_direction, lower_bin, upper_bin)
-                score = zone_score(zone, future_candles, cfg.base.rr_min, cfg.base.rr_max) * cfg.base.zone_score_weight
+                score = zone_score(zone, future_candles, self.cfg.base.rr_min, self.cfg.base.rr_max) * self.cfg.base.zone_score_weight
                 if score > 0.6:
                     if zone_direction == ZoneDirection.support:
                         zone_qualitys[score] = (TrendType.UP.value, ActionType.BUY.value)
