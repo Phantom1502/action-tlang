@@ -188,7 +188,7 @@ def main(cfg: AppConfig):
         # để không cản học nhưng vẫn có phanh. Bắt đầu 0.02, tăng lên nếu vẫn
         # thấy grad_norm/entropy collapse sau khi áp dụng.
         # =====================================================================
-        beta=0.2,
+        beta=0.1,
 
         # =====================================================================
         # THÊM MỚI — chuẩn hoá reward theo std TOÀN BATCH thay vì std của từng
