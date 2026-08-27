@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, List, Optional, Sequence, Tuple, Dict
 from enum import Enum
+from collections import defaultdict
 
 from tlang import (
     ProgramNode,
@@ -17,6 +18,8 @@ from tlang import (
     ActionType,
 )
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
+
+DEGENERATE_GROUP_STD_EPS = 0.5
 
 @dataclass
 class CommonGateResult:
@@ -290,14 +293,38 @@ class TLangReward:
         actions: Sequence[str],
         **kwargs,
     ) -> List[float]:
-        rewards: List[float] = []
-        for prompt, completion, future_bin, trend, action in zip(prompts, completions, future_bins, trends, actions):
-            future_candles = [CandleNode(o[0], o[1], o[2], o[3]) for o in future_bin]
-            reward, meta = self.compute_reward(prompt, completion, future_candles, trend, action)
-            rewards.append(reward)
-                
-            if self.stats_collector is not None:
-                self.stats_collector.log(meta)      
+        n = len(prompts)
+        rewards: List[float] = [0.0] * n
+        metas: List[TaskRolloutMeta] = [None] * n
+
+        for i in range(n):
+            reward, meta = self.compute_reward(
+                prompts[i], completions[i], future_bins[i], trends[i], actions[i],
+            )
+            rewards[i] = reward
+            metas[i] = meta
+            
+        groups_idx: Dict[Any, List[int]] = defaultdict(list)
+        for i, p in enumerate(prompts):
+            groups_idx[p].append(i)
+
+        for idx_list in groups_idx.values():
+            vals = [rewards[i] for i in idx_list]
+            cnt = len(idx_list)
+            mean = sum(vals) / cnt
+            variance = sum((v - mean) ** 2 for v in vals) / cnt
+            std = variance ** 0.5
+
+            too_hard = not any(metas[i].trend_passed for i in idx_list)
+            too_easy = std < DEGENERATE_GROUP_STD_EPS
+
+            if too_hard or too_easy:
+                for i in idx_list:
+                    rewards[i] = mean
+            else:
+                if self.stats_collector is not None:
+                    for i in idx_list:
+                        self.stats_collector.log(metas[i])
                 
         return rewards
     
