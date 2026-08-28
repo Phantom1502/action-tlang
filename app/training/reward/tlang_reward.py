@@ -456,40 +456,61 @@ class TLangReward:
         if cached is not None:
             return cached
 
-        results: List[Tuple[str, str]] = []  
+        BORDER_LOW, BORDER_HIGH = 0.5, 0.7   # vùng biên quanh trend_threshhold=0.6 -- CHỈ nới trong dải này
+
+        results: List[Tuple[str, str]] = []
         candles: List[CandleNode] = Parser.from_text(self.cfg.tlang, prompt).parse().ast.chart.candles
         for zone_direction in (ZoneDirection.support, ZoneDirection.resistance):
             zones = find_truly_valid_zones(
                 candles, 
                 self.cfg.tlang.last_n_touch, 
-                future_candles, 
+                future_candles,
                 zone_direction, 
                 swing_window=5, 
                 zone_width=self.cfg.tlang.zone_range[0],
-                max_bin=self.cfg.tlang.n_bins
+                max_bin=self.cfg.tlang.n_bins,
             )
-            zone_qualitys: Dict[float, Tuple[str, str]] = {}
+            best_score = None
+            best_pairs: List[Tuple[str, str]] = []
             for _, lower_bin, upper_bin, _ in zones:
                 zone = ZoneNode(zone_direction, lower_bin, upper_bin)
                 score = zone_score(zone, future_candles, self.cfg.base.rr_min, self.cfg.base.rr_max) * self.cfg.base.zone_score_weight
+
                 if score > 0.6:
                     if zone_direction == ZoneDirection.support:
-                        zone_qualitys[score] = (TrendType.UP.value, ActionType.BUY.value)
+                        pairs = [(TrendType.UP.value, ActionType.BUY.value)]
                     else:
-                        zone_qualitys[score] = (TrendType.DOWN.value, ActionType.SELL.value)
+                        pairs = [(TrendType.DOWN.value, ActionType.SELL.value)]
+                    # CHỈ nới thêm RANGE khi score nằm sát biên dưới (0.6, 0.7) --
+                    # score đã cao hẳn (>0.7) là trend rõ ràng, KHÔNG cho lách qua RANGE.
+                    if score <= BORDER_HIGH:
+                        if zone_direction == ZoneDirection.support:
+                            pairs.append((TrendType.RANGE.value, ActionType.BUY.value))
+                        else:
+                            pairs.append((TrendType.RANGE.value, ActionType.SELL.value))
                 elif score > 0.3:
                     if zone_direction == ZoneDirection.support:
-                        zone_qualitys[score] = (TrendType.RANGE.value, ActionType.BUY.value)
+                        pairs = [(TrendType.RANGE.value, ActionType.BUY.value)]
+                        # nới NGƯỢC: score sát biên trên (0.5, 0.6] của vùng RANGE cũng cho UP đi kèm
+                        if score > BORDER_LOW:
+                            pairs.append((TrendType.UP.value, ActionType.BUY.value))
                     else:
-                        zone_qualitys[score] = (TrendType.RANGE.value, ActionType.SELL.value)
-            
-            # giữ lại các cặp khả dĩ (trend, action)
-            if len(zone_qualitys) > 0:
-                results.append(zone_qualitys[max(zone_qualitys.keys())]) 
+                        pairs = [(TrendType.RANGE.value, ActionType.SELL.value)]
+                        if score > BORDER_LOW:
+                            pairs.append((TrendType.DOWN.value, ActionType.SELL.value))
+                else:
+                    continue
+
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pairs = pairs
+
+            if best_pairs:
+                results.extend(best_pairs)
 
         if len(results) == 0:
             results.append((TrendType.RANGE.value, ActionType.HOLD.value))
-        
+
         self._cached_hint_type[prompt] = results
         return results
     
