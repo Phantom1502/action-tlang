@@ -16,7 +16,11 @@ from tlang import (
     SemanticResult,
     ZoneDirection,
     ActionType,
-    TrendType
+    TrendType,
+    find_entry_touch,
+    zone_score,
+    derive_target,
+    find_truly_valid_zones
 )
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
 
@@ -48,180 +52,6 @@ class ForwardTestResult:
     r_multiple: float                   # có thể dùng để thống kê
     score: float                        # reward cho model học
 
-def find_truly_valid_zones(
-    input_candles: List[CandleNode],
-    last_n: int,
-    future_candles: List[CandleNode],
-    mode: Literal[ZoneDirection.support, ZoneDirection.resistance] = ZoneDirection.support,
-    swing_window: int = 2,
-    zone_width: int = 50,
-    max_bin: int = 2047
-) -> List[Tuple[int, int, int]]:
-    last_n_candles = input_candles[-last_n:]
-    candles = last_n_candles + future_candles
-    n = len(candles)
-    
-    valid_input_min = min(c.low for c in input_candles)
-    valid_input_max = max(c.high for c in input_candles)
-    valid_zone_ranges = [valid_input_min, valid_input_max]
-    
-    valid_swings = []
-    if n <= last_n:
-        return valid_swings
-    
-    is_support = (mode == ZoneDirection.support)
-    for i in range(last_n, n):
-        # 1. KIỂM TRA ĐIỀU KIỆN SWING HIGH / SWING LOW
-        # Đảm bảo đủ số nến swing_window ở hai bên
-        left_start = max(0, i - swing_window)
-        right_end = min(n - 1, i + swing_window)
-
-        if is_support:
-            current_val = candles[i].low
-            # Là Swing Low nếu giá Low hiện tại <= tất cả các nến trong cửa sổ xung quanh
-            is_swing = all(current_val <= candles[j].low for j in range(left_start, right_end + 1) if j != i)
-        else:
-            current_val = candles[i].high
-            # Là Swing High nếu giá High hiện tại >= tất cả các nến trong cửa sổ xung quanh
-            is_swing = all(current_val >= candles[j].high for j in range(left_start, right_end + 1) if j != i)
-
-        if not is_swing:
-            continue
-        
-        if len(valid_swings) == 0:
-            valid_swings.append((i, current_val))
-        else:
-            if is_support:
-                min_swing = valid_swings[-1][1]
-                if current_val < min_swing:
-                    valid_swings.append((i, current_val))
-            else:
-                max_swing = valid_swings[-1][1]
-                if current_val > max_swing:
-                    valid_swings.append((i, current_val))
-
-    # group all nearby swings into zones
-    valid_zones = []
-    for idx, swing in valid_swings:
-        if len(valid_zones) == 0:
-            valid_zones.append((idx, swing, swing))
-        else:
-            id, slow, shigh = valid_zones[-1]
-            if is_support:
-                if shigh - swing <= zone_width:
-                    valid_zones[-1] = (id, swing, shigh)
-                else:
-                    valid_zones.append((idx, swing, swing))
-            else:
-                if swing - slow <= zone_width:
-                    valid_zones[-1] = (id, slow, swing)
-                else:
-                    valid_zones.append((idx, swing, swing))
-
-    # extend valid_zones to zone_width
-    results = []
-    for id, slow, shigh in valid_zones:
-        if is_support:
-            if shigh - slow <= zone_width:
-                remain = zone_width - (shigh - slow)
-                lower_bin = max(0, slow - remain // 2)
-                upper_bin = lower_bin + zone_width
-                    
-                if upper_bin >= valid_zone_ranges[0]:
-                    results.append((id, lower_bin, upper_bin, upper_bin - lower_bin))
-        else:
-            if shigh - slow <= zone_width:
-                remain = zone_width - (shigh - slow)
-                upper_bin = min(max_bin, shigh + remain // 2)
-                lower_bin = upper_bin - zone_width
-                    
-                if lower_bin <= valid_zone_ranges[1]:
-                    results.append((id, lower_bin, upper_bin, upper_bin - lower_bin))
-
-    return results
-
-def find_best_rr(action_type, entry_price, sl, future_candles, rr_min, rr_max) -> int:
-    direction = "long" if action_type == ActionType.BUY else "short"
-    targets = {rr: derive_target(entry_price, sl, rr, direction) for rr in range(rr_min, rr_max + 1)}
-
-    best_rr = 0
-    for candle in future_candles:
-        hit_sl = (candle.low <= sl) if action_type == ActionType.BUY else (candle.high >= sl)
-        if hit_sl:
-            return best_rr
-
-        next_rr = max(best_rr + 1, rr_min)
-        while next_rr <= rr_max:
-            target = targets[next_rr]
-            hit_target = (candle.high >= target) if action_type == ActionType.BUY else (candle.low <= target)
-            if not hit_target:
-                break
-            best_rr = next_rr
-            next_rr += 1
-
-    return best_rr
-
-def zone_score(
-    zone: ZoneNode,
-    future_candles: List[CandleNode],
-    rr_min: int, 
-    rr_max: int,
-) -> float:
-    touch_idx = None
-    if zone.direction == ZoneDirection.support:
-        touch_idx = _find_entry_touch(zone.upper_bin, ActionType.BUY, future_candles)
-    else:
-        touch_idx = _find_entry_touch(zone.lower_bin, ActionType.SELL, future_candles)
-        
-    if touch_idx is None:
-        return 0.0
-
-    rr = 0
-    if zone.direction == ZoneDirection.support:
-        rr = find_best_rr(
-            ActionType.BUY, 
-            zone.upper_bin, 
-            zone.lower_bin - ZONE_PROBE_SL_BUFFER_BINS, 
-            future_candles[touch_idx:], 
-            rr_min, 
-            rr_max
-        )
-    else:
-        rr = find_best_rr(
-            ActionType.SELL, 
-            zone.lower_bin, 
-            zone.upper_bin + ZONE_PROBE_SL_BUFFER_BINS, 
-            future_candles[touch_idx:], 
-            rr_min, 
-            rr_max
-        )
-    return rr
-
-def _find_entry_touch(entry_price: int, type: ActionType, candles: List[CandleNode]) -> Optional[int]:
-    """Index nến ĐẦU TIÊN có [low,high] giao với [zone.lower_bin,
-    zone.upper_bin] — None nếu không nến nào chạm trong toàn bộ `candles`
-    (caller đã cắt đúng outcome_horizon trước khi truyền vào)."""
-    for i, c in enumerate(candles):
-        if type == ActionType.BUY:
-            if c.low <= entry_price:
-                return i
-        else:
-            if c.high >= entry_price:
-                return i
-    return None
-
-def derive_target(
-    entry_bin: int, 
-    sl_bin: int, 
-    rr: int, 
-    direction: str,
-) -> Optional[int]:
-    if direction == "long":
-        target = entry_bin + rr * (entry_bin - sl_bin)
-    else:
-        target = entry_bin - rr * (sl_bin - entry_bin)
-    return round(target)
-
 def forward_test(
     entry_bin: int,
     sl_bin: int,
@@ -242,7 +72,7 @@ def forward_test(
             hit_tp = candle.low <= target_bin
 
         if hit_sl:
-            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0) # -1R shift 1
+            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0)
         if hit_tp:
             r_multiple = int(abs(target_bin - entry_bin) / risk)
             if r_multiple == 1: # r_multiple = 1
@@ -250,7 +80,7 @@ def forward_test(
             else: # r_multiple > 1
                 return ForwardTestResult(OutcomeStatus.WIN, r_multiple, r_multiple)
             
-    return ForwardTestResult(OutcomeStatus.TIMEOUT, 0.0, 1.0) # 0R shift 1
+    return ForwardTestResult(OutcomeStatus.TIMEOUT, 0.0, 0.0)
 
 def eval_outcome(
     current_price: int,
@@ -281,12 +111,12 @@ def eval_outcome(
     
     touch_idx = None
     if zone.direction == ZoneDirection.support:
-        touch_idx = _find_entry_touch(entry, ActionType.BUY, future_candles)
+        touch_idx = find_entry_touch(entry, ActionType.BUY, future_candles)
     else:
-        touch_idx = _find_entry_touch(entry, ActionType.SELL, future_candles)
+        touch_idx = find_entry_touch(entry, ActionType.SELL, future_candles)
         
     if touch_idx is None:
-        return ForwardTestResult(OutcomeStatus.ENTRY_TIMEOUT, 0.0, 1.0) # shift 1
+        return ForwardTestResult(OutcomeStatus.ENTRY_TIMEOUT, 0.0, 1.0)
 
     target_bin = derive_target(entry, sl, rr, zone.direction)
 
@@ -346,7 +176,7 @@ class TLangReward:
             return ForwardTestResult(
                 OutcomeStatus.HOLD,
                 0.0,
-                1.0 # shift 1
+                0.0 # 
             )
         
         return eval_outcome(
@@ -363,6 +193,7 @@ class TLangReward:
         prompt: str,
         completion: str,
         future_candles: List[CandleNode],
+        hints: List[Tuple[str, str]]
     ) -> Tuple[float, TaskRolloutMeta]:
         reward = 0.0
 
@@ -386,6 +217,41 @@ class TLangReward:
             )
             return reward, meta
         
+        
+        if self.mode == "train":
+            # check match
+            if program.think.trend.value not in [h[0] for h in hints]:
+                return reward, TaskRolloutMeta(
+                    well_formed=True,
+                    semantic_passed=True,
+                    trend_passed=False,
+                    action_passed=False,
+                    trend_type=None,
+                    zone_type=None,
+                    action_type=None,
+                    outcome=None,
+                    outcome_status=None,
+                    rr=None
+                )
+            reward += 0.5
+            
+            valid_pairs = [(h[0], h[1]) for h in hints]
+            pair = (program.think.trend.value, program.action.action_type.value)
+            if pair not in valid_pairs:
+                return reward, TaskRolloutMeta(
+                    well_formed=True,
+                    semantic_passed=True,
+                    trend_passed=True,
+                    action_passed=False,
+                    trend_type=None,
+                    zone_type=None,
+                    action_type=None,
+                    outcome=None,
+                    outcome_status=None,
+                    rr=None
+                )
+            reward += 0.5
+        
         # if all pass, forward test
         score: ForwardTestResult = self.action_score(program, future_candles)
         reward += score.score
@@ -404,6 +270,69 @@ class TLangReward:
         )
         return reward, meta
     
+    def _caching_hint_type(self, prompt: str, future_candles: List[CandleNode]) -> List[Tuple[str, str]]:
+        cached = self._cached_hint_type.get(prompt)
+        if cached is not None:
+            return cached
+
+        BORDER_LOW, BORDER_HIGH = 0.5, 0.7   # vùng biên quanh trend_threshhold=0.6 -- CHỈ nới trong dải này
+
+        results: List[Tuple[str, str]] = []
+        candles: List[CandleNode] = Parser.from_text(self.cfg.tlang, prompt).parse().ast.chart.candles
+        for zone_direction in (ZoneDirection.support, ZoneDirection.resistance):
+            zones = find_truly_valid_zones(
+                candles, 
+                self.cfg.tlang.last_n_touch, 
+                future_candles,
+                zone_direction, 
+                swing_window=5, 
+                zone_width=self.cfg.tlang.zone_range[0],
+                max_bin=self.cfg.tlang.n_bins,
+            )
+            best_score = None
+            best_pairs: List[Tuple[str, str]] = []
+            for _, lower_bin, upper_bin, _ in zones:
+                zone = ZoneNode(zone_direction, lower_bin, upper_bin)
+                score = zone_score(zone, future_candles, self.cfg.base.rr_min, self.cfg.base.rr_max) * self.cfg.base.zone_score_weight
+
+                if score > 0.6:
+                    if zone_direction == ZoneDirection.support:
+                        pairs = [(TrendType.UP.value, ActionType.BUY.value)]
+                    else:
+                        pairs = [(TrendType.DOWN.value, ActionType.SELL.value)]
+                    # CHỈ nới thêm RANGE khi score nằm sát biên dưới (0.6, 0.7) --
+                    # score đã cao hẳn (>0.7) là trend rõ ràng, KHÔNG cho lách qua RANGE.
+                    if score <= BORDER_HIGH:
+                        if zone_direction == ZoneDirection.support:
+                            pairs.append((TrendType.RANGE.value, ActionType.BUY.value))
+                        else:
+                            pairs.append((TrendType.RANGE.value, ActionType.SELL.value))
+                elif score > 0.3:
+                    if zone_direction == ZoneDirection.support:
+                        pairs = [(TrendType.RANGE.value, ActionType.BUY.value)]
+                        # nới NGƯỢC: score sát biên trên (0.5, 0.6] của vùng RANGE cũng cho UP đi kèm
+                        if score > BORDER_LOW:
+                            pairs.append((TrendType.UP.value, ActionType.BUY.value))
+                    else:
+                        pairs = [(TrendType.RANGE.value, ActionType.SELL.value)]
+                        if score > BORDER_LOW:
+                            pairs.append((TrendType.DOWN.value, ActionType.SELL.value))
+                else:
+                    continue
+
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pairs = pairs
+
+            if best_pairs:
+                results.extend(best_pairs)
+
+        if len(results) == 0:
+            results.append((TrendType.RANGE.value, ActionType.HOLD.value))
+
+        self._cached_hint_type[prompt] = results
+        return results
+    
     def __call__(
         self,
         prompts: Sequence[Any],
@@ -414,16 +343,38 @@ class TLangReward:
         n = len(prompts)
         rewards: List[float] = [0.0] * n
         metas: List[TaskRolloutMeta] = [None] * n
-        
+
+        self._cached_hint_type: Dict[Any, List[Tuple[str, str]]] = {}
         for i in range(n):
             future_candles: List[CandleNode] = [CandleNode(c[0], c[1], c[2], c[3]) for c in future_bins[i]]
+            hints: List[Tuple[str, str]] = self._caching_hint_type(prompts[i], future_candles)
             reward, meta = self.compute_reward(
-                prompts[i], completions[i], future_candles,
+                prompts[i], completions[i], future_candles, hints,
             )
             rewards[i] = reward
             metas[i] = meta
-            if self.stats_collector is not None:
-                self.stats_collector.log(metas[i])
+            
+        groups_idx: Dict[Any, List[int]] = defaultdict(list)
+        for i, p in enumerate(prompts):
+            groups_idx[p].append(i)
+
+        for idx_list in groups_idx.values():
+            vals = [rewards[i] for i in idx_list]
+            cnt = len(idx_list)
+            mean = sum(vals) / cnt
+            variance = sum((v - mean) ** 2 for v in vals) / cnt
+            std = variance ** 0.5
+
+            too_hard = not any(metas[i].trend_passed for i in idx_list)
+            too_easy = std < DEGENERATE_GROUP_STD_EPS
+
+            if too_hard or too_easy:
+                for i in idx_list:
+                    rewards[i] = mean
+            else:
+                if self.stats_collector is not None:
+                    for i in idx_list:
+                        self.stats_collector.log(metas[i])
                 
         return rewards
     
