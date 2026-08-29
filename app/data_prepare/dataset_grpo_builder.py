@@ -234,7 +234,9 @@ def gen_action(
         else: # giá trên zone, zone không còn hợp lệ
             return ActionNode(action_type, None, None)
 
-    return ActionNode(action_type=action_type, sl=sl, rr=rr) 
+    if rr < rr_min:   # chưa đạt nổi cả mức RR thấp nhất trước khi SL chạm -> không phải setup đáng ghi nhận
+        return ActionNode(ActionType.HOLD, None, None)
+    return ActionNode(action_type=action_type, sl=sl, rr=rr)
     
 def build_grpo_dataset(
     cfg: AppConfig,
