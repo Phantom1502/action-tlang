@@ -173,7 +173,7 @@ class TLangReward:
             return ForwardTestResult(
                 OutcomeStatus.HOLD,
                 0.0,
-                1.0 # Shift 1
+                0.0 # Shift 1
             )
         
         return eval_outcome(
