@@ -193,7 +193,7 @@ class TLangReward:
         prompt: str,
         completion: str,
         future_candles: List[CandleNode],
-        hints: List[Tuple[str, str]]
+        hints: List[Tuple[str, str]] = []
     ) -> Tuple[float, TaskRolloutMeta]:
         reward = 0.0
 
