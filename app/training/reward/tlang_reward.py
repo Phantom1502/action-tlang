@@ -140,36 +140,25 @@ def find_truly_valid_zones(
 
     return results
 
-def find_best_rr(
-    action_type: ActionType,
-    entry_price: int,
-    sl: int,
-    future_candles: List[CandleNode],
-    rr_min: int,
-    rr_max: int
-)-> int:
+def find_best_rr(action_type, entry_price, sl, future_candles, rr_min, rr_max) -> int:
+    direction = "long" if action_type == ActionType.BUY else "short"
+    targets = {rr: derive_target(entry_price, sl, rr, direction) for rr in range(rr_min, rr_max + 1)}
+
     best_rr = 0
-    for rr in range(rr_min, rr_max + 1):
-        if action_type == ActionType.BUY:
-            target = derive_target(entry_price, sl, rr, "long")
-            for candle in future_candles:
-                hit_sl = candle.low <= sl
-                if hit_sl:
-                    return rr
-                hit_target = candle.high >= target
-                if hit_target:
-                    best_rr = rr
-                    continue
-        else:
-            target = derive_target(entry_price, sl, rr, "short")
-            for candle in future_candles:
-                hit_sl = candle.high >= sl
-                if hit_sl:
-                    return rr
-                hit_target = candle.low <= target
-                if hit_target:
-                    best_rr = rr
-                    continue
+    for candle in future_candles:
+        hit_sl = (candle.low <= sl) if action_type == ActionType.BUY else (candle.high >= sl)
+        if hit_sl:
+            return best_rr
+
+        next_rr = max(best_rr + 1, rr_min)
+        while next_rr <= rr_max:
+            target = targets[next_rr]
+            hit_target = (candle.high >= target) if action_type == ActionType.BUY else (candle.low <= target)
+            if not hit_target:
+                break
+            best_rr = next_rr
+            next_rr += 1
+
     return best_rr
 
 def zone_score(

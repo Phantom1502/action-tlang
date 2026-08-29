@@ -6,7 +6,7 @@ import random
 from typing import List, Optional, Tuple, Literal, Dict
 
 from app.config import AppConfig, load_config, get_scale
-from app.training.reward import derive_target
+from app.training.reward import find_best_rr
 from tlang import (
     ChartCodec,
     ASTVisitor,
@@ -153,38 +153,6 @@ def find_truly_valid_zones(
                     results.append((id, lower_bin, upper_bin, upper_bin - lower_bin))
 
     return results
-
-def find_best_rr(
-    action_type: ActionType,
-    entry_price: int,
-    sl: int,
-    future_candles: List[CandleNode],
-    rr_min: int,
-    rr_max: int
-)-> int:
-    best_rr = 0
-    for rr in range(rr_min, rr_max + 1):
-        if action_type == ActionType.BUY:
-            target = derive_target(entry_price, sl, rr, "long")
-            for candle in future_candles:
-                hit_sl = candle.low <= sl
-                if hit_sl:
-                    return rr
-                hit_target = candle.high >= target
-                if hit_target:
-                    best_rr = rr
-                    continue
-        else:
-            target = derive_target(entry_price, sl, rr, "short")
-            for candle in future_candles:
-                hit_sl = candle.high >= sl
-                if hit_sl:
-                    return rr
-                hit_target = candle.low <= target
-                if hit_target:
-                    best_rr = rr
-                    continue
-    return best_rr
 
 def _find_entry_touch(entry_price: int, type: ActionType, candles: List[CandleNode]) -> Optional[int]:
     """Index nến ĐẦU TIÊN có [low,high] giao với [zone.lower_bin,
