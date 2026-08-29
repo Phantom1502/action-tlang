@@ -32,11 +32,12 @@ def gen_action(
             if sl < 0: # sl out of range
                 return ActionNode(action_type, None, None)
             sl = max(sl - random.randint(0, noise), 0)
+            # đoạn này thừa, vì entry = current price nghĩa là đã vào
             # find best RR for buy action with entry = current_price
-            first_touch = find_entry_touch(current_price, ActionType.BUY, future_candles)
-            if first_touch is None:
-                return ActionNode(action_type, None, None)
-            rr = find_best_rr(ActionType.BUY, current_price, sl, future_candles[first_touch:], rr_min, rr_max)
+            #first_touch = find_entry_touch(current_price, ActionType.BUY, future_candles)
+            #if first_touch is None:
+            #    return ActionNode(action_type, None, None)
+            rr = find_best_rr(ActionType.BUY, current_price, sl, future_candles, rr_min, rr_max)
             action_type = ActionType.BUY
         elif current_price > zone.upper_bin: # giá trên zone, entry là upper bin
             sl_range = max(zone.upper_bin - zone.lower_bin + 1, tlang_cfg.sl_range[0])
@@ -60,10 +61,10 @@ def gen_action(
                 return ActionNode(action_type, None, None)
             sl = min(sl + random.randint(0, noise), tlang_cfg.n_bins - 1)
             # find best RR for sell action with entry = current_price
-            first_touch = find_entry_touch(current_price, ActionType.SELL, future_candles)
-            if first_touch is None:
-                return ActionNode(action_type, None, None)
-            rr = find_best_rr(ActionType.SELL, current_price, sl, future_candles[first_touch:], rr_min, rr_max)
+            #first_touch = find_entry_touch(current_price, ActionType.SELL, future_candles)
+            #if first_touch is None:
+            #    return ActionNode(action_type, None, None)
+            rr = find_best_rr(ActionType.SELL, current_price, sl, future_candles, rr_min, rr_max)
             action_type = ActionType.SELL
         elif current_price < zone.lower_bin: # giá dưới zone, entry là lower bin
             sl_range = max(zone.upper_bin - zone.lower_bin + 1, tlang_cfg.sl_range[0])

@@ -24,7 +24,7 @@ from tlang import (
 )
 from app.training.reward.stats_collector import StatsCollector, TaskRolloutMeta
 
-DEGENERATE_GROUP_STD_EPS = 0.3
+DEGENERATE_GROUP_STD_EPS = 1e-6
 ZONE_PROBE_SL_BUFFER_BINS = 1
 
 @dataclass
