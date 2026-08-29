@@ -88,7 +88,7 @@ def build_pretrain_dataset(
                     zone_direction, 
                     swing_window=swing_window, 
                     zone_width=cfg.tlang.zone_range[0],
-                    max_bin=cfg.tlang.n_bins
+                    max_bin=cfg.tlang.n_bins - 1
                 )
                 for future_idx, lower_bin, upper_bin, width in zones:
                     zone = ZoneNode(zone_direction, lower_bin, upper_bin)
@@ -105,13 +105,13 @@ def build_pretrain_dataset(
                         zone_nodes.append((score, zone))
                         zone_counter[zone_direction.value] += 1
                         # thêm noise để đa dạng zone
-                        for _ in range(n_samples):
-                            if zone_noise > 0:
+                        if zone_noise > 0:
+                            for _ in range(n_samples):
                                 lower_bin = max(0, zone.lower_bin - random.randint(0, zone_noise))
                                 upper_bin = min(cfg.tlang.n_bins - 1, zone.upper_bin + random.randint(0, zone_noise))
                             
-                            noise_zone = ZoneNode(zone_direction, lower_bin, upper_bin)
-                            zone_nodes.append((score, noise_zone))
+                                noise_zone = ZoneNode(zone_direction, lower_bin, upper_bin)
+                                zone_nodes.append((score, noise_zone))
                 
             records = []
             for score, zone in zone_nodes:
