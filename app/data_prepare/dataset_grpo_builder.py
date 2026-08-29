@@ -95,7 +95,13 @@ def build_grpo_dataset(
                         cfg.base.rr_max,
                         0,
                     )
-                    score = zone_score(zone, future_candles, cfg.base.rr_min, cfg.base.rr_max) * cfg.base.zone_score_weight
+                    score = zone_score(
+                        zone, 
+                        future_candles, 
+                        cfg.base.rr_min, 
+                        cfg.base.rr_max,
+                        cfg.tlang.n_bins-1
+                    ) * cfg.base.zone_score_weight
                     if score > trend_threshhold:
                         if zone_direction == ZoneDirection.support:
                             trend = TrendType.UP

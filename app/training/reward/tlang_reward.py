@@ -293,7 +293,13 @@ class TLangReward:
             best_pairs: List[Tuple[str, str]] = []
             for _, lower_bin, upper_bin, _ in zones:
                 zone = ZoneNode(zone_direction, lower_bin, upper_bin)
-                score = zone_score(zone, future_candles, self.cfg.base.rr_min, self.cfg.base.rr_max) * self.cfg.base.zone_score_weight
+                score = zone_score(
+                    zone, 
+                    future_candles, 
+                    self.cfg.base.rr_min, 
+                    self.cfg.base.rr_max, 
+                    self.cfg.tlang.n_bins-1
+                ) * self.cfg.base.zone_score_weight
 
                 if score > 0.6:
                     if zone_direction == ZoneDirection.support:

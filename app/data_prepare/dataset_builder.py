@@ -94,7 +94,13 @@ def build_pretrain_dataset(
                     zone = ZoneNode(zone_direction, lower_bin, upper_bin)
                     zone_counter[f"BEFORE_FILLTER_{zone_direction.value}"] += 1
                     # score tính trên zone tối ưu ko noise
-                    score = zone_score(zone, future_candles, cfg.base.rr_min, cfg.base.rr_max) * cfg.base.zone_score_weight
+                    score = zone_score(
+                        zone, 
+                        future_candles, 
+                        cfg.base.rr_min, 
+                        cfg.base.rr_max,
+                        cfg.tlang.n_bins-1
+                    ) * cfg.base.zone_score_weight
                     if score > hold_threshhold:
                         zone_nodes.append((score, zone))
                         zone_counter[zone_direction.value] += 1
