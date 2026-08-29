@@ -253,7 +253,7 @@ def forward_test(
             hit_tp = candle.low <= target_bin
 
         if hit_sl:
-            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0) # -1R shift 1
+            return ForwardTestResult(OutcomeStatus.LOSS, -1.0, 0.0)
         if hit_tp:
             r_multiple = int(abs(target_bin - entry_bin) / risk)
             if r_multiple == 1: # r_multiple = 1
@@ -261,7 +261,7 @@ def forward_test(
             else: # r_multiple > 1
                 return ForwardTestResult(OutcomeStatus.WIN, r_multiple, r_multiple)
             
-    return ForwardTestResult(OutcomeStatus.TIMEOUT, 0.0, 1.0) # 0R shift 1
+    return ForwardTestResult(OutcomeStatus.TIMEOUT, 0.0, 0.0)
 
 def eval_outcome(
     current_price: int,
@@ -297,7 +297,7 @@ def eval_outcome(
         touch_idx = _find_entry_touch(entry, ActionType.SELL, future_candles)
         
     if touch_idx is None:
-        return ForwardTestResult(OutcomeStatus.ENTRY_TIMEOUT, 0.0, 1.0) # shift 1
+        return ForwardTestResult(OutcomeStatus.ENTRY_TIMEOUT, 0.0, 1.0)
 
     target_bin = derive_target(entry, sl, rr, zone.direction)
 
@@ -357,7 +357,7 @@ class TLangReward:
             return ForwardTestResult(
                 OutcomeStatus.HOLD,
                 0.0,
-                1.0 # shift 1
+                0.0 # 
             )
         
         return eval_outcome(
@@ -374,6 +374,7 @@ class TLangReward:
         prompt: str,
         completion: str,
         future_candles: List[CandleNode],
+        hints: List[Tuple[str, str]]
     ) -> Tuple[float, TaskRolloutMeta]:
         reward = 0.0
 
@@ -397,6 +398,41 @@ class TLangReward:
             )
             return reward, meta
         
+        
+        if self.mode == "train":
+            # check match
+            if program.think.trend.value not in [h[0] for h in hints]:
+                return reward, TaskRolloutMeta(
+                    well_formed=True,
+                    semantic_passed=True,
+                    trend_passed=False,
+                    action_passed=False,
+                    trend_type=None,
+                    zone_type=None,
+                    action_type=None,
+                    outcome=None,
+                    outcome_status=None,
+                    rr=None
+                )
+            reward += 0.5
+            
+            valid_pairs = [(h[0], h[1]) for h in hints]
+            pair = (program.think.trend.value, program.action.action_type.value)
+            if pair not in valid_pairs:
+                return reward, TaskRolloutMeta(
+                    well_formed=True,
+                    semantic_passed=True,
+                    trend_passed=True,
+                    action_passed=False,
+                    trend_type=None,
+                    zone_type=None,
+                    action_type=None,
+                    outcome=None,
+                    outcome_status=None,
+                    rr=None
+                )
+            reward += 0.5
+        
         # if all pass, forward test
         score: ForwardTestResult = self.action_score(program, future_candles)
         reward += score.score
@@ -415,6 +451,69 @@ class TLangReward:
         )
         return reward, meta
     
+    def _caching_hint_type(self, prompt: str, future_candles: List[CandleNode]) -> List[Tuple[str, str]]:
+        cached = self._cached_hint_type.get(prompt)
+        if cached is not None:
+            return cached
+
+        BORDER_LOW, BORDER_HIGH = 0.5, 0.7   # vùng biên quanh trend_threshhold=0.6 -- CHỈ nới trong dải này
+
+        results: List[Tuple[str, str]] = []
+        candles: List[CandleNode] = Parser.from_text(self.cfg.tlang, prompt).parse().ast.chart.candles
+        for zone_direction in (ZoneDirection.support, ZoneDirection.resistance):
+            zones = find_truly_valid_zones(
+                candles, 
+                self.cfg.tlang.last_n_touch, 
+                future_candles,
+                zone_direction, 
+                swing_window=5, 
+                zone_width=self.cfg.tlang.zone_range[0],
+                max_bin=self.cfg.tlang.n_bins,
+            )
+            best_score = None
+            best_pairs: List[Tuple[str, str]] = []
+            for _, lower_bin, upper_bin, _ in zones:
+                zone = ZoneNode(zone_direction, lower_bin, upper_bin)
+                score = zone_score(zone, future_candles, self.cfg.base.rr_min, self.cfg.base.rr_max) * self.cfg.base.zone_score_weight
+
+                if score > 0.6:
+                    if zone_direction == ZoneDirection.support:
+                        pairs = [(TrendType.UP.value, ActionType.BUY.value)]
+                    else:
+                        pairs = [(TrendType.DOWN.value, ActionType.SELL.value)]
+                    # CHỈ nới thêm RANGE khi score nằm sát biên dưới (0.6, 0.7) --
+                    # score đã cao hẳn (>0.7) là trend rõ ràng, KHÔNG cho lách qua RANGE.
+                    if score <= BORDER_HIGH:
+                        if zone_direction == ZoneDirection.support:
+                            pairs.append((TrendType.RANGE.value, ActionType.BUY.value))
+                        else:
+                            pairs.append((TrendType.RANGE.value, ActionType.SELL.value))
+                elif score > 0.3:
+                    if zone_direction == ZoneDirection.support:
+                        pairs = [(TrendType.RANGE.value, ActionType.BUY.value)]
+                        # nới NGƯỢC: score sát biên trên (0.5, 0.6] của vùng RANGE cũng cho UP đi kèm
+                        if score > BORDER_LOW:
+                            pairs.append((TrendType.UP.value, ActionType.BUY.value))
+                    else:
+                        pairs = [(TrendType.RANGE.value, ActionType.SELL.value)]
+                        if score > BORDER_LOW:
+                            pairs.append((TrendType.DOWN.value, ActionType.SELL.value))
+                else:
+                    continue
+
+                if best_score is None or score > best_score:
+                    best_score = score
+                    best_pairs = pairs
+
+            if best_pairs:
+                results.extend(best_pairs)
+
+        if len(results) == 0:
+            results.append((TrendType.RANGE.value, ActionType.HOLD.value))
+
+        self._cached_hint_type[prompt] = results
+        return results
+    
     def __call__(
         self,
         prompts: Sequence[Any],
@@ -425,16 +524,38 @@ class TLangReward:
         n = len(prompts)
         rewards: List[float] = [0.0] * n
         metas: List[TaskRolloutMeta] = [None] * n
-        
+
+        self._cached_hint_type: Dict[Any, List[Tuple[str, str]]] = {}
         for i in range(n):
             future_candles: List[CandleNode] = [CandleNode(c[0], c[1], c[2], c[3]) for c in future_bins[i]]
+            hints: List[Tuple[str, str]] = self._caching_hint_type(prompts[i], future_candles)
             reward, meta = self.compute_reward(
-                prompts[i], completions[i], future_candles,
+                prompts[i], completions[i], future_candles, hints,
             )
             rewards[i] = reward
             metas[i] = meta
-            if self.stats_collector is not None:
-                self.stats_collector.log(metas[i])
+            
+        groups_idx: Dict[Any, List[int]] = defaultdict(list)
+        for i, p in enumerate(prompts):
+            groups_idx[p].append(i)
+
+        for idx_list in groups_idx.values():
+            vals = [rewards[i] for i in idx_list]
+            cnt = len(idx_list)
+            mean = sum(vals) / cnt
+            variance = sum((v - mean) ** 2 for v in vals) / cnt
+            std = variance ** 0.5
+
+            too_hard = not any(metas[i].trend_passed for i in idx_list)
+            too_easy = std < DEGENERATE_GROUP_STD_EPS
+
+            if too_hard or too_easy:
+                for i in idx_list:
+                    rewards[i] = mean
+            else:
+                if self.stats_collector is not None:
+                    for i in idx_list:
+                        self.stats_collector.log(metas[i])
                 
         return rewards
     

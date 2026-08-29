@@ -14,3 +14,4 @@ app/inference/__pycache__/
 data/slide_window/
 scripts/__pycache__/
 out/
+app/training/reward1/__pycache__/
